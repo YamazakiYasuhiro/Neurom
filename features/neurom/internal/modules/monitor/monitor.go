@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"encoding/binary"
+	"log"
 	"math"
 	"sync"
 
@@ -22,6 +23,7 @@ type MonitorConfig struct {
 type MonitorModule struct {
 	config MonitorConfig
 	bus    bus.Bus
+	wg     sync.WaitGroup
 
 	mu      sync.Mutex
 	vram    []uint8
@@ -50,7 +52,7 @@ func New(cfg MonitorConfig) *MonitorModule {
 		vram:   make([]uint8, 256*212),
 		rgba:   make([]byte, 256*212*4),
 	}
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		p := uint8(i)
 		m.palette[p][0] = byte((int((p >> 5) & 7) * 255) / 7)
 		m.palette[p][1] = byte((int((p >> 2) & 7) * 255) / 7)
@@ -70,11 +72,23 @@ func (m *MonitorModule) Start(ctx context.Context, b bus.Bus) error {
 		return err
 	}
 
-	go m.receiveLoop(ctx, ch)
+	sysCh, err := b.Subscribe("system")
+	if err != nil {
+		return err
+	}
+
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.receiveLoop(ctx, ch, sysCh)
+	}()
 	return nil
 }
 
 func (m *MonitorModule) Stop() error {
+	log.Println("[Monitor] Stop: waiting for receiveLoop goroutine...")
+	m.wg.Wait()
+	log.Println("[Monitor] Stop: receiveLoop goroutine finished.")
 	return nil
 }
 
@@ -83,21 +97,33 @@ func (m *MonitorModule) RunMain() {
 		return
 	}
 	app.Main(func(a app.App) {
+		log.Println("[Monitor] RunMain: app.Main callback started")
 		m.appObj = a
+	eventLoop:
 		for e := range a.Events() {
 			switch e := a.Filter(e).(type) {
 			case lifecycle.Event:
+				log.Printf("[Monitor] RunMain: lifecycle event: From=%v To=%v Crosses(Visible)=%v", e.From, e.To, e.Crosses(lifecycle.StageVisible))
 				switch e.Crosses(lifecycle.StageVisible) {
 				case lifecycle.CrossOn:
 					m.glctx, _ = e.DrawContext.(gl.Context)
 					m.onStart(m.glctx)
 					a.Send(paint.Event{})
 				case lifecycle.CrossOff:
+					log.Println("[Monitor] RunMain: CrossOff — cleaning up GL resources")
 					if m.glctx != nil {
 						m.glctx.DeleteProgram(m.program)
 						m.glctx.DeleteTexture(m.tex)
 						m.glctx = nil
 					}
+				}
+				// Break out of the event loop when the window is destroyed.
+				// On Windows, x/mobile tries to re-create the window after StageDead,
+				// so a.Events() never closes. We must break manually.
+				if e.To == lifecycle.StageDead {
+					log.Println("[Monitor] RunMain: StageDead detected, breaking event loop")
+					m.publishShutdown()
+					break eventLoop
 				}
 			case size.Event:
 				if m.glctx != nil {
@@ -111,14 +137,49 @@ func (m *MonitorModule) RunMain() {
 				a.Publish()
 			}
 		}
+		log.Println("[Monitor] RunMain: event loop exited")
+		m.publishShutdown()
+		log.Println("[Monitor] RunMain: app.Main callback returning")
 	})
+	// app.Main may never return on some platforms. If it does, we continue
+	// the normal shutdown path in main().
+	log.Println("[Monitor] RunMain: app.Main returned")
 }
 
-func (m *MonitorModule) receiveLoop(ctx context.Context, ch <-chan *bus.BusMessage) {
+// publishShutdown sends a system shutdown command to the bus.
+func (m *MonitorModule) publishShutdown() {
+	log.Println("[Monitor] publishShutdown: called")
+	if m.bus != nil {
+		err := m.bus.Publish("system", &bus.BusMessage{
+			Target:    bus.TargetSystem,
+			Operation: bus.OpCommand,
+			Data:      []byte(bus.CmdShutdown),
+			Source:    m.Name(),
+		})
+		if err != nil {
+			log.Printf("[Monitor] publishShutdown: publish failed: %v", err)
+		} else {
+			log.Println("[Monitor] publishShutdown: shutdown message published successfully")
+		}
+	} else {
+		log.Println("[Monitor] publishShutdown: bus is nil, cannot publish")
+	}
+}
+
+func (m *MonitorModule) receiveLoop(ctx context.Context, ch <-chan *bus.BusMessage, sysCh <-chan *bus.BusMessage) {
+	log.Println("[Monitor] receiveLoop: started")
+	defer log.Println("[Monitor] receiveLoop: exited")
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("[Monitor] receiveLoop: ctx.Done received")
 			return
+		case msg := <-sysCh:
+			log.Printf("[Monitor] receiveLoop: system message received: Target=%s Data=%s", msg.Target, string(msg.Data))
+			if msg.Target == bus.TargetSystem && string(msg.Data) == bus.CmdShutdown {
+				log.Println("[Monitor] receiveLoop: shutdown command matched, exiting")
+				return
+			}
 		case msg := <-ch:
 			if msg.Target == "palette_updated" && len(msg.Data) >= 4 {
 				index := msg.Data[0]
@@ -264,7 +325,7 @@ func compileShader(glctx gl.Context, shaderType gl.Enum, src string) (gl.Shader,
 }
 
 func (m *MonitorModule) buildFrame() {
-	for i := 0; i < len(m.vram); i++ {
+	for i := range len(m.vram) {
 		p := m.vram[i]
 		m.rgba[i*4] = m.palette[p][0]
 		m.rgba[i*4+1] = m.palette[p][1]

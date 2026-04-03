@@ -2,6 +2,7 @@ package vram
 
 import (
 	"context"
+	"log"
 	"sync"
 
 	"github.com/axsh/neurom/internal/bus"
@@ -15,6 +16,7 @@ type VRAMModule struct {
 	buffer  []uint8
 	palette [256][3]uint8
 	bus     bus.Bus
+	wg      sync.WaitGroup
 }
 
 func New() *VRAMModule {
@@ -37,19 +39,37 @@ func (v *VRAMModule) Start(ctx context.Context, b bus.Bus) error {
 		return err
 	}
 
-	go v.run(ctx, ch)
+	sysCh, err := b.Subscribe("system")
+	if err != nil {
+		return err
+	}
+
+	v.wg.Add(1)
+	go func() {
+		defer v.wg.Done()
+		v.run(ctx, ch, sysCh)
+	}()
 	return nil
 }
 
 func (v *VRAMModule) Stop() error {
+	log.Println("[VRAM] Stop: waiting for run goroutine...")
+	v.wg.Wait()
+	log.Println("[VRAM] Stop: run goroutine finished.")
 	return nil
 }
 
-func (v *VRAMModule) run(ctx context.Context, ch <-chan *bus.BusMessage) {
+func (v *VRAMModule) run(ctx context.Context, ch <-chan *bus.BusMessage, sysCh <-chan *bus.BusMessage) {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("[VRAM] run: ctx.Done received, exiting")
 			return
+		case msg := <-sysCh:
+			if msg.Target == bus.TargetSystem && string(msg.Data) == bus.CmdShutdown {
+				log.Println("[VRAM] run: shutdown command received, exiting")
+				return
+			}
 		case msg := <-ch:
 			v.handleMessage(msg)
 		}

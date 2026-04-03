@@ -15,6 +15,12 @@ const (
 	OpCommand
 )
 
+// System-level command constants.
+const (
+	TargetSystem = "System"
+	CmdShutdown  = "Shutdown"
+)
+
 // BusMessage is the message structure that flows through the system bus.
 type BusMessage struct {
 	Target    string

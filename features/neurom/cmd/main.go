@@ -53,18 +53,35 @@ func main() {
 	log.Println("All modules started successfully.")
 
 	if *headless {
-		// Wait for interrupt signal if headless
+		// In headless mode, wait for either OS signal or bus shutdown command.
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
+
+		sysCh, err := b.Subscribe("system")
+		if err != nil {
+			log.Fatalf("Failed to subscribe to system topic: %v", err)
+		}
+
+		select {
+		case <-sigCh:
+			log.Println("Received OS signal, initiating shutdown...")
+		case msg := <-sysCh:
+			if msg.Target == bus.TargetSystem && string(msg.Data) == bus.CmdShutdown {
+				log.Println("Received shutdown command via bus, initiating shutdown...")
+			}
+		}
 	} else {
 		// UI main loop blocks here until app is finished
+		log.Println("[Main] RunMain: entering UI event loop...")
 		mon.RunMain()
+		log.Println("[Main] RunMain: returned (window closed)")
 	}
 
-	log.Println("Shutting down VM...")
+	log.Println("[Main] Shutting down VM... calling cancel()")
+	cancel()
+	log.Println("[Main] cancel() done. Calling mgr.StopAll()...")
 	if err := mgr.StopAll(); err != nil {
-		log.Printf("Errors during shutdown: %v", err)
+		log.Printf("[Main] Errors during shutdown: %v", err)
 	}
-	log.Println("Shutdown complete.")
+	log.Println("[Main] Shutdown complete. Exiting process.")
 }

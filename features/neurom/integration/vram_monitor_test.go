@@ -61,6 +61,7 @@ waitLoop:
 		t.Fatal("Failed to receive vram_update message from VRAM via integration test")
 	}
 
+	cancel()
 	if err := mgr.StopAll(); err != nil {
 		t.Errorf("StopAll returned error: %v", err)
 	}
