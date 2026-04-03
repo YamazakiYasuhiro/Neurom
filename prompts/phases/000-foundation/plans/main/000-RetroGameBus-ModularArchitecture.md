@@ -3,7 +3,7 @@
 > **Source Specification**: prompts/phases/000-foundation/ideas/main/000-RetroGameBus-ModularArchitecture.md
 
 ## Goal Description
-レトロゲーム機の拡張空間機能のように、独立した各仮想ハードウェアモジュールが、ZeroMQによるPub/Subベースのシステムバス等を通じて相互通信できる基本アーキテクチャ(Metov VM)を実装する。また、CPU、VRAM、ディスプレイモニタ、I/Oといった基本的なモジュールを準備し、抽象化された描画コマンドとHeadless制御に対応させる。これにより、柔軟な機能拡張基盤の確証を得る。
+レトロゲーム機の拡張空間機能のように、独立した各仮想ハードウェアモジュールが、ZeroMQによるPub/Subベースのシステムバス等を通じて相互通信できる基本アーキテクチャ(Neurom)を実装する。また、CPU、VRAM、ディスプレイモニタ、I/Oといった基本的なモジュールを準備し、抽象化された描画コマンドとHeadless制御に対応させる。これにより、柔軟な機能拡張基盤の確証を得る。
 
 ## User Review Required
 None.

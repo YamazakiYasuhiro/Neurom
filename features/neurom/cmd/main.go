@@ -21,7 +21,7 @@ func main() {
 	tcpPort := flag.String("tcp-port", "5555", "TCP port for external bus connections")
 	flag.Parse()
 
-	log.Println("Starting Metov VM...")
+	log.Println("Starting Neurom (ARC Emulator)...")
 
 	endpointInproc := "inproc://system-bus"
 	endpointTCP := "tcp://127.0.0.1:" + *tcpPort
