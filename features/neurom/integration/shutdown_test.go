@@ -17,10 +17,7 @@ import (
 // message through the bus causes all modules to terminate gracefully
 // without deadlocking.
 func TestGracefulShutdownViaBus(t *testing.T) {
-	b, err := bus.NewZMQBus("inproc://test-shutdown-bus")
-	if err != nil {
-		t.Fatalf("Failed to init bus: %v", err)
-	}
+	b := bus.NewChannelBus()
 	defer b.Close()
 
 	mgr := module.NewManager(b)
@@ -42,7 +39,7 @@ func TestGracefulShutdownViaBus(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Publish shutdown command to the system topic.
-	err = b.Publish("system", &bus.BusMessage{
+	err := b.Publish("system", &bus.BusMessage{
 		Target:    bus.TargetSystem,
 		Operation: bus.OpCommand,
 		Data:      []byte(bus.CmdShutdown),

@@ -49,7 +49,7 @@ func TestPaletteUpdate(t *testing.T) {
 	if err := b.Publish("vram", &bus.BusMessage{
 		Target:    "draw_pixel",
 		Operation: bus.OpCommand,
-		Data:      []byte{0x00, 10, 0x00, 10, 0x01}, // X:10, Y:10, p:1
+		Data:      []byte{0x00, 0x00, 10, 0x00, 10, 0x01}, // page:0, X:10, Y:10, p:1
 	}); err != nil {
 		t.Fatalf("Failed to publish draw_pixel: %v", err)
 	}
