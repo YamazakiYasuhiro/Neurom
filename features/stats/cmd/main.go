@@ -20,6 +20,7 @@ type commandStat struct {
 	Last1s  windowStats `json:"last_1s"`
 	Last10s windowStats `json:"last_10s"`
 	Last30s windowStats `json:"last_30s"`
+	EmaNs   int64       `json:"ema_ns"`
 }
 
 type vramStats struct {
@@ -85,10 +86,10 @@ func fetchStats(endpoint string) (*statsResponse, error) {
 
 func printStats(s *statsResponse) {
 	fmt.Println("=== VRAM Stats ===")
-	fmt.Printf("%-24s ──── 1s ────   ──── 10s ────   ──── 30s ────\n", "Command")
-	fmt.Printf("%-24s %5s %7s  %5s %7s   %5s %7s\n",
-		"", "Count", "Avg(μs)", "Count", "Avg(μs)", "Count", "Avg(μs)")
-	fmt.Println("──────────────────────────────────────────────────────────────────────")
+	fmt.Printf("%-24s ──── 1s ────   ──── 10s ────   ──── 30s ────   ── EMA ──\n", "Command")
+	fmt.Printf("%-24s %5s %7s  %5s %7s   %5s %7s   %7s\n",
+		"", "Count", "Avg(μs)", "Count", "Avg(μs)", "Count", "Avg(μs)", "Avg(μs)")
+	fmt.Println("──────────────────────────────────────────────────────────────────────────────────")
 
 	names := make([]string, 0, len(s.VRAM.Commands))
 	for name := range s.VRAM.Commands {
@@ -98,11 +99,12 @@ func printStats(s *statsResponse) {
 
 	for _, name := range names {
 		st := s.VRAM.Commands[name]
-		fmt.Printf("%-24s %5d %7.2f  %5d %7.2f   %5d %7.2f\n",
+		fmt.Printf("%-24s %5d %7.2f  %5d %7.2f   %5d %7.2f   %7.2f\n",
 			name,
 			st.Last1s.Count, float64(st.Last1s.AvgNs)/1000.0,
 			st.Last10s.Count, float64(st.Last10s.AvgNs)/1000.0,
 			st.Last30s.Count, float64(st.Last30s.AvgNs)/1000.0,
+			float64(st.EmaNs)/1000.0,
 		)
 	}
 

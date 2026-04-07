@@ -923,11 +923,11 @@ func TestCPUConfigValidation(t *testing.T) {
 			t.Error("pool should be nil with no config")
 		}
 	})
-	t.Run("Strategy empty defaults to dynamic", func(t *testing.T) {
+	t.Run("Strategy empty defaults to adaptive", func(t *testing.T) {
 		v := New(Config{Workers: 4, Strategy: ""})
 		defer v.pool.stop()
-		if _, ok := v.strategy.(*dynamicDispatcher); !ok {
-			t.Errorf("expected *dynamicDispatcher, got %T", v.strategy)
+		if _, ok := v.strategy.(*adaptiveDispatcher); !ok {
+			t.Errorf("expected *adaptiveDispatcher, got %T", v.strategy)
 		}
 	})
 	t.Run("Strategy static", func(t *testing.T) {

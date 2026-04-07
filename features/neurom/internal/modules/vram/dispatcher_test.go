@@ -1,6 +1,7 @@
 package vram
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -160,10 +161,217 @@ func TestNewDispatchStrategy_Dynamic(t *testing.T) {
 	}
 }
 
+func TestNewDispatchStrategy_Heuristic(t *testing.T) {
+	s := newDispatchStrategy("heuristic", 4)
+	if _, ok := s.(*dynamicDispatcher); !ok {
+		t.Errorf("expected *dynamicDispatcher for 'heuristic', got %T", s)
+	}
+}
+
+func TestNewDispatchStrategy_Adaptive(t *testing.T) {
+	s := newDispatchStrategy("adaptive", 4)
+	if _, ok := s.(*adaptiveDispatcher); !ok {
+		t.Errorf("expected *adaptiveDispatcher, got %T", s)
+	}
+}
+
 func TestNewDispatchStrategy_Default(t *testing.T) {
 	s := newDispatchStrategy("", 4)
-	if _, ok := s.(*dynamicDispatcher); !ok {
-		t.Errorf("expected *dynamicDispatcher for empty string, got %T", s)
+	if _, ok := s.(*adaptiveDispatcher); !ok {
+		t.Errorf("expected *adaptiveDispatcher for empty string, got %T", s)
+	}
+}
+
+func TestSizeBucket(t *testing.T) {
+	cases := []struct {
+		dataSize int
+		want     int
+	}{
+		{0, 0}, {255, 0},
+		{256, 1}, {1023, 1},
+		{1024, 2}, {4095, 2},
+		{4096, 3}, {16383, 3},
+		{16384, 4}, {65535, 4},
+		{65536, 5}, {1000000, 5},
+	}
+	for _, tc := range cases {
+		got := sizeBucket(tc.dataSize)
+		if got != tc.want {
+			t.Errorf("sizeBucket(%d) = %d, want %d", tc.dataSize, got, tc.want)
+		}
+	}
+}
+
+func TestBuildWorkerSet(t *testing.T) {
+	cases := []struct {
+		maxWorkers int
+		want       []int
+	}{
+		{1, []int{1}},
+		{2, []int{1, 2}},
+		{4, []int{1, 2, 4}},
+		{8, []int{1, 2, 4, 8}},
+		{6, []int{1, 2, 4, 6}},
+		{16, []int{1, 2, 4, 8, 16}},
+	}
+	for _, tc := range cases {
+		got := buildWorkerSet(tc.maxWorkers)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("buildWorkerSet(%d) = %v, want %v", tc.maxWorkers, got, tc.want)
+		}
+	}
+}
+
+func TestAdaptiveDispatcher_DecideReturnsValidWorker(t *testing.T) {
+	d := newAdaptiveDispatcher(8)
+	for range 100 {
+		w := d.Decide("blit_rect", 5000)
+		valid := false
+		for _, ws := range d.workerSet {
+			if w == ws {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			t.Errorf("Decide returned %d, not in workerSet %v", w, d.workerSet)
+		}
+	}
+}
+
+func TestAdaptiveDispatcher_ExploitBestArm(t *testing.T) {
+	d := newAdaptiveDispatcher(8)
+	d.epsilon = 0.0
+
+	key := "clear_vram:5"
+	b := d.getBandit(key)
+	for _, w := range d.workerSet {
+		arm := b.getArm(w)
+		arm.trials = 10
+		arm.emaReward = 1.0
+	}
+	b.getArm(4).emaReward = 10.0
+
+	for range 50 {
+		w := d.Decide("clear_vram", 100000)
+		if w != 4 {
+			t.Errorf("ε=0 should always select best arm (4), got %d", w)
+		}
+	}
+}
+
+func TestAdaptiveDispatcher_ExploreRandomArm(t *testing.T) {
+	d := newAdaptiveDispatcher(8)
+	d.epsilon = 1.0
+
+	key := "blit_rect:3"
+	b := d.getBandit(key)
+	for _, w := range d.workerSet {
+		arm := b.getArm(w)
+		arm.trials = 10
+		arm.emaReward = 1.0
+	}
+
+	counts := make(map[int]int)
+	n := 1000
+	for range n {
+		w := d.Decide("blit_rect", 5000)
+		counts[w]++
+	}
+	for _, w := range d.workerSet {
+		if counts[w] == 0 {
+			t.Errorf("ε=1.0: arm %d was never selected in %d trials", w, n)
+		}
+	}
+}
+
+func TestAdaptiveDispatcher_Rollback(t *testing.T) {
+	d := newAdaptiveDispatcher(4)
+	d.epsilon = 0.0
+
+	key := "clear_vram:5"
+	b := d.getBandit(key)
+	for _, w := range d.workerSet {
+		arm := b.getArm(w)
+		arm.trials = 10
+		arm.emaReward = 1.0
+	}
+	b.getArm(4).emaReward = 10.0
+
+	w := d.Decide("clear_vram", 100000)
+	if w != 4 {
+		t.Fatalf("initial best should be 4, got %d", w)
+	}
+
+	b.getArm(4).emaReward = 0.5
+	b.getArm(2).emaReward = 5.0
+
+	w = d.Decide("clear_vram", 100000)
+	if w != 2 {
+		t.Errorf("after rollback, expected arm 2, got %d", w)
+	}
+}
+
+func TestAdaptiveDispatcher_EMAUpdate(t *testing.T) {
+	d := newAdaptiveDispatcher(4)
+	for i := uint64(0); i < adaptiveFeedbackSampleRate; i++ {
+		d.Feedback("clear_vram", 50000, 4, 100*time.Microsecond)
+	}
+	key := "clear_vram:4"
+	b := d.bandits[key]
+	if b == nil {
+		t.Fatal("bandit not created")
+	}
+	arm := b.arms[4]
+	if arm == nil {
+		t.Fatal("arm not created")
+	}
+	if arm.emaReward <= 0 {
+		t.Errorf("emaReward should be > 0 after feedback, got %f", arm.emaReward)
+	}
+	if arm.trials != 1 {
+		t.Errorf("trials = %d, want 1", arm.trials)
+	}
+}
+
+func TestAdaptiveDispatcher_FeedbackSampling(t *testing.T) {
+	d := newAdaptiveDispatcher(4)
+
+	// With adaptiveFeedbackSampleRate=1, every Feedback call is processed.
+	d.Feedback("blit_rect", 5000, 1, 10*time.Microsecond)
+	if len(d.bandits) == 0 {
+		t.Error("bandits should have entry after first feedback")
+	}
+
+	// Verify additional feedback updates the same bandit correctly.
+	d.Feedback("blit_rect", 5000, 1, 10*time.Microsecond)
+	key := "blit_rect:3"
+	b := d.bandits[key]
+	if b == nil {
+		t.Fatal("bandit for blit_rect:3 not found")
+	}
+	arm := b.arms[1]
+	if arm == nil {
+		t.Fatal("arm for workers=1 not found")
+	}
+	if arm.trials != 2 {
+		t.Errorf("trials = %d, want 2 after two feedback calls", arm.trials)
+	}
+}
+
+func TestAdaptiveDispatcher_Warmup(t *testing.T) {
+	d := newAdaptiveDispatcher(4)
+	d.epsilon = 0.0
+
+	seen := make(map[int]bool)
+	for range 100 {
+		w := d.Decide("clear_vram", 100000)
+		seen[w] = true
+	}
+	for _, w := range d.workerSet {
+		if !seen[w] {
+			t.Errorf("warmup: arm %d was never selected", w)
+		}
 	}
 }
 

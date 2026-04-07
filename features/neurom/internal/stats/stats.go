@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-const SlotCount = 30
+const (
+	SlotCount     = 30
+	StatsEMAAlpha = 0.05
+)
 
 // WindowStats holds aggregated stats for a single time window.
 type WindowStats struct {
@@ -19,6 +22,12 @@ type CommandStat struct {
 	Last1s  WindowStats `json:"last_1s"`
 	Last10s WindowStats `json:"last_10s"`
 	Last30s WindowStats `json:"last_30s"`
+	EmaNs   int64       `json:"ema_ns"`
+}
+
+type emaTracker struct {
+	value  float64
+	seeded bool
 }
 
 // MonitorStats holds monitor performance statistics for multi-window display.
@@ -47,6 +56,7 @@ type Collector struct {
 	slots     [SlotCount]slotData
 	headIdx   int
 	knownCmds map[string]struct{}
+	cmdEMA    map[string]*emaTracker
 	nowFunc   func() time.Time
 }
 
@@ -55,6 +65,7 @@ func NewCollector() *Collector {
 	now := time.Now()
 	c := &Collector{
 		knownCmds: make(map[string]struct{}),
+		cmdEMA:    make(map[string]*emaTracker),
 		nowFunc:   time.Now,
 	}
 	c.slots[0] = slotData{
@@ -98,6 +109,19 @@ func (c *Collector) Record(command string, d time.Duration) {
 	if ns > acc.maxNs {
 		acc.maxNs = ns
 	}
+
+	tracker := c.cmdEMA[command]
+	if tracker == nil {
+		tracker = &emaTracker{}
+		c.cmdEMA[command] = tracker
+	}
+	nsf := float64(ns)
+	if !tracker.seeded {
+		tracker.value = nsf
+		tracker.seeded = true
+	} else {
+		tracker.value = (1-StatsEMAAlpha)*tracker.value + StatsEMAAlpha*nsf
+	}
 }
 
 // Snapshot returns stats for all known commands across 1s, 10s, and 30s windows.
@@ -134,10 +158,16 @@ func (c *Collector) Snapshot() map[string]CommandStat {
 			s30.add(acc)
 		}
 
+		emaNs := int64(0)
+		if t := c.cmdEMA[cmd]; t != nil && t.seeded {
+			emaNs = int64(t.value)
+		}
+
 		result[cmd] = CommandStat{
 			Last1s:  s1.toWindowStats(),
 			Last10s: s10.toWindowStats(),
 			Last30s: s30.toWindowStats(),
+			EmaNs:   emaNs,
 		}
 	}
 	return result

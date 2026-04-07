@@ -286,6 +286,44 @@ func TestHTTPStats_SnapshotIdempotent(t *testing.T) {
 	}
 }
 
+func TestHTTPStats_EMAField(t *testing.T) {
+	b, _, _, ss, _ := setupHTTPTestEnv(t)
+
+	for range 10 {
+		_ = b.Publish("vram", &bus.BusMessage{
+			Target: "clear_vram", Operation: bus.OpCommand,
+			Data: []byte{0x00, 0x00},
+		})
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	url := fmt.Sprintf("http://%s/stats/vram", ss.Addr())
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var raw map[string]json.RawMessage
+	json.NewDecoder(resp.Body).Decode(&raw)
+	cmdRaw := raw["commands"]
+	var cmds map[string]json.RawMessage
+	json.Unmarshal(cmdRaw, &cmds)
+	cvRaw := cmds["clear_vram"]
+	var cv map[string]json.RawMessage
+	json.Unmarshal(cvRaw, &cv)
+	if _, ok := cv["ema_ns"]; !ok {
+		t.Error("clear_vram missing ema_ns field in JSON response")
+	}
+
+	var cvStat stats.CommandStat
+	json.Unmarshal(cvRaw, &cvStat)
+	if cvStat.EmaNs <= 0 {
+		t.Errorf("clear_vram EmaNs = %d, want > 0", cvStat.EmaNs)
+	}
+}
+
 func TestHTTPStats_MultiWindow(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
@@ -323,7 +361,7 @@ func TestHTTPStats_MultiWindow(t *testing.T) {
 	var dp map[string]json.RawMessage
 	json.Unmarshal(dpRaw, &dp)
 
-	for _, key := range []string{"last_1s", "last_10s", "last_30s"} {
+	for _, key := range []string{"last_1s", "last_10s", "last_30s", "ema_ns"} {
 		if _, ok := dp[key]; !ok {
 			t.Errorf("draw_pixel missing field %s", key)
 		}

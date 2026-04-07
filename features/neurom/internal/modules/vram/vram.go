@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/stats"
@@ -157,8 +156,8 @@ func (v *VRAMModule) handleMessage(msg *bus.BusMessage) {
 		return
 	}
 
-	start := time.Now()
-	defer func() { v.stats.Record(msg.Target, time.Since(start)) }()
+	start := hrNow()
+	defer func() { v.stats.Record(msg.Target, hrSince(start)) }()
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -218,7 +217,7 @@ func (v *VRAMModule) parallelRows(command string, totalRows int, width int, fn f
 		return
 	}
 	workers := v.strategy.Decide(command, dataSize)
-	start := time.Now()
+	start := hrNow()
 	if workers == 1 {
 		fn(0, totalRows)
 	} else {
@@ -230,7 +229,7 @@ func (v *VRAMModule) parallelRows(command string, totalRows int, width int, fn f
 		}
 		wg.Wait()
 	}
-	v.strategy.Feedback(command, dataSize, workers, time.Since(start))
+	v.strategy.Feedback(command, dataSize, workers, hrSince(start))
 }
 
 // parallelRowsFn returns a function suitable for TransformBlitParallel,

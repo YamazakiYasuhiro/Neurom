@@ -209,6 +209,55 @@ func TestAdvanceLargeGap(t *testing.T) {
 	}
 }
 
+func TestEMA_FirstRecord(t *testing.T) {
+	c := NewCollector()
+	c.Record("cmd_a", 1*time.Millisecond)
+	snap := c.Snapshot()
+	if snap["cmd_a"].EmaNs != 1_000_000 {
+		t.Errorf("EmaNs = %d, want 1000000", snap["cmd_a"].EmaNs)
+	}
+}
+
+func TestEMA_DecayUpdate(t *testing.T) {
+	c := NewCollector()
+	c.Record("cmd_a", 1*time.Millisecond)
+	c.Record("cmd_a", 3*time.Millisecond)
+	snap := c.Snapshot()
+	expected := int64(0.95*1_000_000 + 0.05*3_000_000)
+	if snap["cmd_a"].EmaNs != expected {
+		t.Errorf("EmaNs = %d, want %d", snap["cmd_a"].EmaNs, expected)
+	}
+}
+
+func TestEMA_Persists_NoRecord(t *testing.T) {
+	c := NewCollector()
+	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := base
+	c.SetNowFunc(func() time.Time { return now })
+
+	c.Record("cmd_a", 1*time.Millisecond)
+	snap1 := c.Snapshot()
+	emaBefore := snap1["cmd_a"].EmaNs
+
+	now = base.Add(35 * time.Second)
+	snap2 := c.Snapshot()
+	if snap2["cmd_a"].Last30s.Count != 0 {
+		t.Errorf("Last30s.Count should be 0 after 35s, got %d", snap2["cmd_a"].Last30s.Count)
+	}
+	if snap2["cmd_a"].EmaNs != emaBefore {
+		t.Errorf("EmaNs changed from %d to %d without Record", emaBefore, snap2["cmd_a"].EmaNs)
+	}
+}
+
+func TestEMA_InSnapshot(t *testing.T) {
+	c := NewCollector()
+	c.Record("cmd_a", 500*time.Microsecond)
+	snap := c.Snapshot()
+	if snap["cmd_a"].EmaNs <= 0 {
+		t.Errorf("cmd_a EmaNs should be > 0, got %d", snap["cmd_a"].EmaNs)
+	}
+}
+
 func TestAggregateAvgAndMax(t *testing.T) {
 	c := NewCollector()
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)

@@ -23,7 +23,7 @@ func main() {
 	noTCP := flag.Bool("no-tcp", false, "Disable TCP bridge for external connections")
 	tcpPort := flag.String("tcp-port", "5555", "TCP port for external bus connections")
 	cpuWorkers := flag.Int("cpu", 1, "Number of VRAM worker goroutines (1-256)")
-	vramStrategy := flag.String("vram-strategy", "dynamic", "VRAM parallelization strategy: static or dynamic")
+	vramStrategy := flag.String("vram-strategy", "adaptive", "VRAM parallelization strategy: static, heuristic, or adaptive")
 	statsPort := flag.String("stats-port", "", "HTTP port for stats endpoint (disabled if empty)")
 	flag.Parse()
 
