@@ -13,10 +13,7 @@ import (
 )
 
 func TestVRAMMonitorIntegration(t *testing.T) {
-	b, err := bus.NewZMQBus("inproc://test-integration-bus")
-	if err != nil {
-		t.Fatalf("Failed to init bus: %v", err)
-	}
+	b := bus.NewChannelBus()
 	defer b.Close()
 
 	mgr := module.NewManager(b)

@@ -12,10 +12,7 @@ import (
 )
 
 func TestPaletteUpdate(t *testing.T) {
-	b, err := bus.NewZMQBus("inproc://test-palette-bus")
-	if err != nil {
-		t.Fatalf("Failed to init bus: %v", err)
-	}
+	b := bus.NewChannelBus()
 	defer b.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
