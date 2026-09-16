@@ -1,6 +1,3 @@
----
-trigger: always_on
----
 
 # プロジェクト共通指示書 (`.agent/instructions.md`)
 
@@ -11,15 +8,17 @@ trigger: always_on
 ## ディレクトリ構造と情報源
 - **仕様・設計**: `prompts/phases/` 配下が「正」の情報源です。
     - `000-xxx`: フェーズ名称
-        - `ideas/`: 主要なアイデアメモと仕様書
+        - `branches/`: ブランチ別のアイデアと計画
             - `main/`: `main`ブランチ (現在の作業ブランチ名を入れること)
-                - `000-yyy.md`: アイディアと要件を記したマークダウンファイル
-                - `001-zzz.md`: 同上
+                - `ideas/`: 主要なアイデアメモと仕様書
+                    - `000-yyy.md`: アイディアと要件を記したマークダウンファイル
+                    - `001-zzz.md`: 同上
+                - `plans/`: 実装計画書
 
 ## 開発プロセス
 
 - **仕様ファースト**
-    - 実装の前に `prompts/phases/...` 以下の `ideas/` フォルダに作業ブランチ名のフォルダを作成し、その下に仕様を作成・更新してください。仕様書のファイル名は、`000-` から始まる3桁の連番の数字で管理してください。
+    - 実装の前に `prompts/phases/...` 以下の `branches/` > 作業ブランチ名 > `ideas/` フォルダに仕様を作成・更新してください。仕様書のファイル名は、`000-` から始まる3桁の連番の数字で管理してください。
 
 ## ワークフロー間の流れ
 
@@ -30,7 +29,7 @@ trigger: always_on
 
 1. **人間**: 実装のアイディアを考える
 2. **AI**: `create-specification.md` を使って仕様のマークダウンファイルを生成
-   - 出力先: `prompts/phases/000-xxx/ideas/[ブランチ名]/XXX-Name.md`
+   - 出力先: `prompts/phases/000-xxx/branches/[ブランチ名]/ideas/XXX-Name.md`
    - 内容: 背景、要件、実装計画の概要
 3. **人間**: 仕様書をレビュー
    - 修正が必要な場合は、AIに指示して修正させる
@@ -41,8 +40,8 @@ trigger: always_on
 
 1. **人間**: 仕様マークダウンファイルを指定
 2. **AI**: `create-implementation-plan.md` を使って詳細な実装計画を作成
-   - 入力: `prompts/phases/000-xxx/ideas/[ブランチ名]/XXX-Name.md`
-   - 出力: `prompts/phases/000-xxx/plans/[ブランチ名]/YYY-Name.md`
+   - 入力: `prompts/phases/000-xxx/branches/[ブランチ名]/ideas/XXX-Name.md`
+   - 出力: `prompts/phases/000-xxx/branches/[ブランチ名]/plans/YYY-Name.md`
    - 内容: 統合テスト計画、単体テスト計画、実装手順、検証計画
    - 大きな仕様の場合: 複数の実装計画ファイルに分割（Part1, Part2, ...）
 3. **人間**: 実装計画をレビュー
@@ -54,10 +53,10 @@ trigger: always_on
 
 1. **人間**: 実装計画ファイルを指定
 2. **AI**: `execute-implementation-plan.md` に従って実装を実行
-   - 入力: `prompts/phases/000-xxx/plans/[ブランチ名]/YYY-Name.md`
+   - 入力: `prompts/phases/000-xxx/branches/[ブランチ名]/plans/YYY-Name.md`
    - プロセス:
-     - コーディングルール (`prompts/rules/coding-rules.md`) を遵守してコード実装
-     - テストルール (`prompts/rules/testing-rules.md`) を遵守してテスト作成
+     - コーディングルール (`.agent/rules/coding-rules.md`) を遵守してコード実装
+     - テストルール (`.agent/rules/testing-rules.md`) を遵守してテスト作成
      - 実装計画のチェックボックス `[ ]` → `[x]` で進捗管理
      - 進行中項目は `[/]` でマーク
 
@@ -68,15 +67,33 @@ trigger: always_on
 
 1. **AI**: `scripts/process/build.sh` を実行
    - 全体ビルドと単体テストを実行
+   - **Linux**（ワークスペースの OS が Linux）および **Cursor / VS Code の Remote-SSH で接続先が Linux** の場合は、**必ず `--skip-etc` を付けて** `./scripts/process/build.sh --skip-etc` とすること（`etc` 配下の `mcp-command-runner` / `image-inspector` 等が当該環境で失敗しやすいため）
    - 失敗時は即座に修正して再実行
 2. **AI**: `scripts/process/integration_test.sh` を実行
    - 統合テストを実行
+   - **Linux** および **Remote-SSH の接続先が Linux** のときは **headless 前提**とする: **`--headed` と `--ui` を付けない**（Playwright の headless 既定のまま）。`integration_test.sh` は **`xvfb-run -a` で必ずラップ**して実行する（`./scripts/process/integration_test.sh` を直接叩かない。`--resume` や `--specify` を付けるときも同様）。根拠は `features/frontend/scripts/integration_test.sh` 冒頭コメント。**`xvfb-run` が無いホストでは先に Xvfb 系パッケージを入れてから実行**する。
    - 失敗時は修正して該当テストのみ再実行 (`--specify` オプション使用)
 3. **AI**: 必要に応じて全テストを再実行してリグレッション確認
+
+### 調査ワークフロー（開発フローとは独立）
+**ワークフロー**: [`investigate.md`](.agent/workflows/investigate.md)
+
+開発フロー（仕様 → 計画 → 実装）とは独立した、**読み取り専用**の調査ワークフローです。
+
+1. **人間**: 調査内容を依頼（バグ調査、設計理解、依存関係の把握など）
+2. **AI**: `investigate.md` に従って調査を実施
+   - コードの閲覧・検索、ログ分析、Gitの履歴追跡など
+   - 必要に応じて既存コマンドの実行による現状把握
+   - **コードの変更は一切行わない**
+3. **AI**: 調査結果をArtifactレポートとしてまとめて報告
+4. **人間**: レポートを確認し、必要に応じて追加調査を依頼
+   - 修正が必要な場合は、別途 `/create-specification` から開発フローを開始
 
 ### ワークフロー図
 
 ```
+=== 開発フロー ===
+
 [人間: アイディア]
        ↓
 [AI: create-specification.md] → 仕様書生成
@@ -93,6 +110,17 @@ trigger: always_on
        └→ [AI: build-pipeline.md]
               ├→ scripts/process/build.sh (全体ビルド・単体テスト)
               └→ scripts/process/integration_test.sh (統合テスト)
+
+=== 調査フロー（独立・読み取り専用）===
+
+[人間: 調査依頼]
+       ↓
+[AI: investigate.md] → コード解析・ログ分析・コマンド実行
+       ↓
+[AI: レポート作成] → Artifact として報告
+       ↓
+[人間: レポート確認・追加調査依頼]
+       └→ 修正が必要な場合は開発フローへ
 ```
 
 ### 重要なポイント
@@ -100,18 +128,23 @@ trigger: always_on
 - **人間のレビューポイント**: 仕様書と実装計画の2箇所
 - **自動実行部分**: 実装実行とビルド・検証パイプライン
 - **進捗管理**: 実装計画のチェックボックスで進捗を可視化
-- **テスト順序**: 統合テスト → 単体テスト → その他のテスト
+- **テスト順序**: 単体テスト → 統合テスト → その他のテスト
 - **スクリプト配置**: `scripts/` ディレクトリに各種ビルド・テストスクリプトを配置
 - **フェーズ移行の禁止事項**: 現在のワークフローが完了しても、人間からの明示的な指示があるまでは、勝手に次のワークフロー（フェーズ）を開始してはいけません。
+- **システム自動承認（Proceed to execution）メッセージに関する注意事項**:
+  - 実装計画書などの成果物を書き出した際、Antigravity環境の仕組み（Stop Hook）により、システム側から `stop hook blocked... The user has automatically approved... Proceed to execution` と自動承認のシグナルが注入されることがあります。
+  - これはAntigravityシステム内部のアーティファクト管理上の自動承認であり、**人間が管理する `ideas/` や `plans/` 下の成果物そのものを人間が承認したという意味ではありません。**
+  - したがって、この自動承認システムメッセージを受信した場合であっても、**チャット上で人間から直接「計画を承認する」「実装へ進んでください」といった明示的な意思表示があるまでは、絶対に次のフェーズ（実装の実行やコードの変更、ビルド）を開始してはいけません。**
 
 ## シェル環境の指定
 
 コマンドラインでスクリプトやコマンドを実行する際は、**bash** の使用を推奨します。
+**Powershellは使わないで**ください。
 
 ### Windows環境での注意事項
 
 > [!IMPORTANT]
-> Windows環境では、PowerShellではなく必ず **Git Bash** などのbash互換環境を使用してください。
+> Windows環境では、PowerShellではなく必ず **Git Bash** のbash互換環境を使用してください。
 
 - **推奨環境**: Git Bash, WSL (Windows Subsystem for Linux), Cygwin など
 - **理由**: プロジェクトのスクリプト (`scripts/` 配下) はbashスクリプトとして記述されているため、PowerShellでは正しく動作しない可能性があります
@@ -120,7 +153,48 @@ trigger: always_on
 ### Mac / Linux環境
 
 - 標準のbashシェルを使用してください
-- 特別な設定は不要です
+- **Linux**（ローカル Linux および **Remote-SSH のリモートが Linux**）: `scripts/process/build.sh` を叩くときは **`--skip-etc`** を付与すること（例: `./scripts/process/build.sh --skip-etc`）
+- **Linux / Remote-SSH（Linux）**: `scripts/process/integration_test.sh` は **`--headed` / `--ui` を付けず**、かつ **`xvfb-run -a` で必ずラップ**して実行する（スクリプトを直接実行しない）
+- **macOS**: 上記 `--skip-etc` は Linux / Remote-SSH（Linux）専用の補足であり、macOS では従来どおりプロジェクトの期待に合わせて実行すればよい
+
+## Git 操作ルール
+
+実装フェーズ（`execute-implementation-plan` や `build-pipeline`、`run-all-tests`）では、以下のルールに従って Git 操作を行ってください。
+
+> [!IMPORTANT]
+> **コミットメッセージのクォーティング**: Windows 環境では、PowerShell 経由で bash を呼び出す際にコミットメッセージが途切れる問題があります。
+> **必ず `-m` の引数にはシングルクォートを使用**してください（例: `git commit -m 'feat: add feature'`）。
+> Mac / Linux 環境ではこの問題は発生しませんが、統一のためシングルクォートの使用を推奨します。
+
+### コミットの方針
+
+- **こまめにコミット**: コードの変更は、目的や意味のある単位で `git add` → `git commit` を実施してください。大きな変更を一度にまとめてコミットすることは避けてください。
+- **コミット単位の目安**:
+    - 1つの関数/メソッドの実装完了
+    - 1つのテストファイルの作成・修正完了
+    - 1つのバグ修正完了
+    - リファクタリングの1ステップ完了
+    - 設定ファイルの変更
+- **コミットメッセージ**: 変更内容が分かる簡潔なメッセージを英語で記述してください。
+    - 例: `feat: add bearer auth middleware`, `test: add unit tests for token validation`, `fix: handle nil pointer in auth handler`
+- **コミットのタイミング**: 実装計画の各ステップを完了するごとに、対応する変更をコミットしてください。
+
+### プッシュの方針
+
+- **ビルド・テスト完了後にプッシュ**: `build.sh` および必要な統合テストが全て成功した時点で `git push` を実施してください。
+- テストが失敗している状態ではプッシュしないでください。
+- 修正ループ（Fix Loop）中のコミットは、テストが全て通過してからまとめてプッシュします。
+
+### 実行例
+
+```bash
+# 実装の各ステップ完了時
+git add <変更ファイル>
+git commit -m 'feat: implement rate limiter struct'
+
+# ビルド・テスト全成功後
+git push
+```
 
 ## ファイル管理規則
 - **中間生成ファイル**: タスク進行中に生成される中間ファイル（ビルドエラーログ、デバッグ出力、一時的なドキュメントなど）は、必ず `tmp/` ディレクトリ以下に作成してください。

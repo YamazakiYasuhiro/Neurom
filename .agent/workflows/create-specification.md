@@ -1,6 +1,9 @@
 ---
-description: ユーザーが述べた内容を仕様書としてまとめる
+name: create-specification
+description: Create a structured specification document capturing background, requirements, and verification scenarios.
+disable-model-invocation: false
 ---
+
 
 # 仕様書作成ワークフロー
 
@@ -16,14 +19,14 @@ description: ユーザーが述べた内容を仕様書としてまとめる
 ## 2. 出力先の決定
 
 1.  **ディレクトリの確定**:
-    *   基本パス: `prompts/phases/[Phase]/ideas/[Branch]/`
-    *   例: `prompts/phases/001-webservices/ideas/main/`
+    *   基本パス: `prompts/phases/[Phase]/branches/[Branch]/ideas/`
+    *   例: `prompts/phases/001-webservices/branches/main/ideas/`
     *   このディレクトリが存在しない場合は作成します。
 2.  **ファイル名の決定**:
     *   形式: `[NextID]-[名前].md`
     *   `[名前]` 部分は、仕様の内容を適切に表現する簡潔な名称を使用します（例: `Tokenizer`, `RateLimit-GlobalManagement`など）。
 
-## 2. 仕様書の内容構成
+## 3. 仕様書の内容構成
 
 仕様書には、以下の項目を最低限含める必要があります:
 
@@ -48,10 +51,31 @@ description: ユーザーが述べた内容を仕様書としてまとめる
     *   **重要 (Mandatory Automated Verification)**:
         *   手動確認（「画面を目視で確認」など）だけの計画は許可されません。
         *   必ずプロジェクト標準のスクリプトを使用した検証コマンドを明記してください。
-        *   CLI/Backend/Logic: `scripts/process/build.sh`, `scripts/process/integration_test.sh`
     *   どの要件を、どのスクリプト/テストケースで検証するかを対比して記述します。
+    *   **ビルド・全体検証の書き方**:
+        *   **ビルド**: `scripts/process/build.sh` を記載します（全体ビルド＋単体テスト）。
+        *   **統合テスト**: `scripts/process/integration_test.sh` を記載しますが、**オプションなしでの実行を推奨しません**。以下のガイドラインに従ってください。
+    *   **`integration_test.sh` の実行戦略**:
+        *   オプションなしで実行すると全カテゴリの統合テストが長時間実行され、不安定なテストも含まれるため、開発中の検証には不向きです。全カテゴリ一括実行は Nightly build 等の用途に留めてください。
+        *   仕様書では、**影響範囲を分析した上で、`--categories` や `--specify` オプションを使った具体的な実行コマンドを複数記述する**こと。
+        *   利用可能なカテゴリ: `common`, `llm`, `taskengine`, `template`, `gui`
+        *   `--specify "REGEX"` で特定テストに絞り込むことも可能です。
+        *   記述例:
+            ```
+            ### ビルド・全体検証
+            
+            1. ビルド＋単体テスト:
+               scripts/process/build.sh
+            
+            2. バックエンド統合テスト（共通機能のリグレッション確認）:
+               scripts/process/integration_test.sh --categories "common"
+            
+            3. GUI 統合テスト（UI 変更の確認）:
+               scripts/process/integration_test.sh --categories "gui" --specify "SettingsGear|MailPost"
+            ```
+        *   仕様の影響範囲に応じて、実行するカテゴリと `--specify` の対象を適切に選定します。影響しないカテゴリは含めないでください。
 
-## 3. 仕様書の作成と保存
+## 4. 仕様書の作成と保存
 
 1.  **ユーザーとの対話**:
     *   ユーザーが述べた内容を注意深く聞き、必要に応じて質問して詳細を明確にします。
@@ -64,11 +88,19 @@ description: ユーザーが述べた内容を仕様書としてまとめる
 3.  **ファイルの保存**:
     *   決定したファイル名で、指定されたディレクトリにファイルを保存します。
 
-## 4. 完了確認
+## 5. 完了確認
 
 1.  **内容のレビュー**:
-    *   作成した仕様書が、背景・要件・実現方針の3つの観点をカバーしているか確認します。
-2.  **ファイルパスの提示**:
+    *   作成した仕様書が、背景・要件・実現方針の観点をカバーしているか確認します。
+2.  **ドキュメントの Git コミット**:
+    *   作成・更新した仕様書ファイルを `git add` → `git commit` してください。
+    *   コミットメッセージ例: `docs: add specification XXX-Name`
+    *   修正が複数回あった場合は、最終版をまとめてコミットしても構いません。
+    ```bash
+    git add prompts/phases/[Phase]/branches/[Branch]/ideas/[ファイル名]
+    git commit -m 'docs: add specification XXX-Name'
+    ```
+3.  **ファイルパスの提示**:
     *   作成したファイルへのリンクをユーザーに提示します。
         * 「file://プロジェクトルートからの相対パス」を用いること
-    *   必要に応じて、次のステップ（実装計画の作成など）を提案します。
+    *   **フェーズ移行**: 次のステップ（実装計画の作成等）に進むのは、ユーザーが明示的に指示した場合のみです。勝手に `create-implementation-plan` に進まないでください。
