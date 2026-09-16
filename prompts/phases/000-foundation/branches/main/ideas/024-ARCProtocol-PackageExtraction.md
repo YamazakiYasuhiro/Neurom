@@ -361,5 +361,5 @@ var (
 
 ## 対応ステータス
 
-- **ステータス**: 未着手
-- **実装計画**: 未作成
+- **ステータス**: 未着手（実装計画レビュー待ち）
+- **実装計画**: [024-ARCProtocol-PackageExtraction.md](file://prompts/phases/000-foundation/branches/main/plans/024-ARCProtocol-PackageExtraction.md)
