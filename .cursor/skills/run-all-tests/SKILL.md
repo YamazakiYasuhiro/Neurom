@@ -34,41 +34,25 @@ disable-model-invocation: false
 
 `integration_test.sh` は全カテゴリを一括実行すると非常に長時間かかるため、**選択的実行プラン**を立ててカテゴリ単位で分割実行する。
 
-### 2.1 利用可能なカテゴリの発見
+### 2.1 利用可能なカテゴリ
 
-カテゴリは将来追加される可能性があるため、**決め打ちせず毎回動的に発見する**。
+Neurom の統合テストカテゴリは次のとおり（`integration_test.sh --help` にも記載）:
 
-1. **ヘルプ出力を確認**:
-   ```bash
-   ./scripts/process/integration_test.sh --help
-   ```
-   `Available categories:` の行からカテゴリ一覧を取得する。
+`vram`, `monitor`, `bus`, `stats`, `lifecycle`, `palette`
 
-2. **バックエンドテストディレクトリを走査**:
-   ```bash
-   ls -d features/backend/tests/*/
-   ```
-   `testdata` 等のテスト非対象ディレクトリを除外する。
-
-3. **フロントエンド（GUI）テストの有無を確認**:
-   `features/frontend/scripts/integration_test.sh` が存在すれば `gui` カテゴリも対象。
-
-4. **カテゴリ実行順序の確認**:
-   `features/backend/scripts/integration_test.sh` 内の `GO_CATEGORY_ORDER` 配列から推奨順序を取得。
-
-> **重要**: 常にこの動的発見の結果を使用すること。ワークフロー内のハードコードされたカテゴリ名は使わない。
+配置: `features/*/integration/`。未分類の `*_test.go` はランナーが失敗する。
 
 ### 2.2 実行プランの策定
 
-1. 発見した全カテゴリについて実行順序を決定する。
+1. 影響範囲に応じてカテゴリを選ぶ（全カテゴリ一括はコミット前や Nightly）。
 2. テストケースが多い場合は `--specify` で正規表現フィルタを使い分割する。
 
 ```
-実行プラン:
-1. {category_a} : --categories "{category_a}"
-2. {category_b} : --categories "{category_b}"
-...
-N. gui          : --categories "gui"
+実行プラン例:
+1. vram      : --categories "vram"
+2. stats     : --categories "stats"
+3. lifecycle : --categories "lifecycle"
+4. 全件      : --require-tests
 ```
 
 ## Phase 3: 選択的実行ループ

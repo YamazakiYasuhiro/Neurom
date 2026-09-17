@@ -497,6 +497,9 @@ func main() {
 1 feature に main パッケージは 1 つまでである。`features/metov/cmd/` に置く
 main パッケージは 1 つに限ること。
 
+
+> [!NOTE]
+> `--categories` および階層分離は仕様 030 実装後に使用可能。それ以前は `integration_test.sh` が無効で、統合テストは `build.sh` 側で実行されていた。
 ## 対応ステータス
 
 - **ステータス**: 未着手

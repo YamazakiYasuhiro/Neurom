@@ -62,22 +62,24 @@ tags:
         *   **ビルド**: `scripts/process/build.sh` を記載します（全体ビルド＋単体テスト）。
         *   **統合テスト**: `scripts/process/integration_test.sh` を記載しますが、**オプションなしでの実行を推奨しません**。以下のガイドラインに従ってください。
     *   **`integration_test.sh` の実行戦略**:
-        *   オプションなしで実行すると全カテゴリの統合テストが長時間実行され、不安定なテストも含まれるため、開発中の検証には不向きです。全カテゴリ一括実行は Nightly build 等の用途に留めてください。
+        *   オプションなしで実行すると全カテゴリの統合テストが長時間実行されるため、開発中の検証には不向きです。全カテゴリ一括実行はコミット前や Nightly 等の用途に留めてください。
         *   仕様書では、**影響範囲を分析した上で、`--categories` や `--specify` オプションを使った具体的な実行コマンドを複数記述する**こと。
-        *   利用可能なカテゴリ: `common`, `llm`, `taskengine`, `template`, `gui`
+        *   利用可能なカテゴリ: `vram`, `monitor`, `bus`, `stats`, `lifecycle`, `palette`
+        *   統合テストの配置: `features/{feature}/integration/`
         *   `--specify "REGEX"` で特定テストに絞り込むことも可能です。
+        *   レース検証が必要な場合: `scripts/process/integration_test.sh --race --categories "..."`
         *   記述例:
             ```
             ### ビルド・全体検証
             
-            1. ビルド＋単体テスト:
+            1. ビルド＋単体テスト＋ go vet:
                scripts/process/build.sh
             
-            2. バックエンド統合テスト（共通機能のリグレッション確認）:
-               scripts/process/integration_test.sh --categories "common"
+            2. VRAM 統合テスト（描画経路のリグレッション確認）:
+               scripts/process/integration_test.sh --categories "vram"
             
-            3. GUI 統合テスト（UI 変更の確認）:
-               scripts/process/integration_test.sh --categories "gui" --specify "SettingsGear|MailPost"
+            3. 統計とライフサイクル:
+               scripts/process/integration_test.sh --categories "stats,lifecycle"
             ```
         *   仕様の影響範囲に応じて、実行するカテゴリと `--specify` の対象を適切に選定します。影響しないカテゴリは含めないでください。
 

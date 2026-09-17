@@ -118,14 +118,15 @@ tags:
     *   **Log Verification**: [ログで何を確認すべきか具体的に記述]
 
 3.  **E2E Tests (新規/追加)**:
-    新機能の動作を検証するE2Eテストコードを `tests/` 配下に追加する。
-    手動コマンド実行による確認は、E2Eテストコード化の**代替にはならない**。
-    既存の E2E テストインフラ (`tests/agentservice_e2e_test.go` のヘルパー関数等) を積極的に活用すること。
-    E2E テストが不要な場合（純粋な内部リファクタリング等）は、その理由を明記すること。
+    新機能の動作を検証する統合テストを `features/{feature}/integration/` に追加する。
+    手動コマンド実行による確認は、統合テストコード化の**代替にはならない**。
+    E2E / GUI インフラが無い場合（Neurom の現状）は、その理由を Verification Plan に明記し、
+    `integration_test.sh --categories "..."` による検証で代替する。
 
-    #### [NEW/MODIFY] [テストファイル名](file://tests/xxx_test.go)
+    #### [NEW/MODIFY] [テストファイル名](features/neurom/integration/xxx_test.go)
     *   **テストケース**: [テスト関数名と検証内容]
     *   **検証ポイント**: [何が動作していれば成功か]
+    *   新規ファイルは `integration_test.sh` の `CATEGORY_FILES` に登録すること
 
 ## Documentation
 

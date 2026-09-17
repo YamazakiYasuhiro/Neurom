@@ -63,22 +63,17 @@ alwaysApply: false
 
 #### Backend (Go)
 *   **単体テスト (Unit Test)**:
-    *   対象: `cmd/`, `internal/`, `pkg/` 内の各パッケージ。
-    *   実行: `go test ./...` または `scripts/process/build.sh --skip-frontend --skip-etc`。
-    *   制約: **Fail Fast**。外部通信を行わず、モックを使用すること。
+    *   対象: `cmd/`, `internal/`, `arcproto/` 内の各パッケージ。
+    *   実行: `scripts/process/build.sh`。
+    *   制約: **Fail Fast**。外部通信を行わず、モックを使用すること。`features/*/integration/` は含めない。
 *   **統合テスト (Integration Test)**:
-    *   対象: `tests/` ディレクトリ配下。
-    *   実行: `scripts/process/integration_test.sh` (カテゴリ指定なし、または `llm` 等のバックエンドカテゴリ指定)。
-    *   制約: 実際のコンテナやAPIと通信を行う。
+    *   対象: `features/{feature}/integration/` ディレクトリ配下。
+    *   実行: `scripts/process/integration_test.sh --categories "..."`。
+    *   制約: 実バス・実モジュール連携で検証する。
 
 #### Frontend (VSCode/TypeScript)
-*   **単体テスト (Unit Test)**:
-    *   対象: Webview (React) コンポーネント等。
-    *   実行: `npm test` (Webviewディレクトリ内) は開発時のみ許容。CI/Verificationでは `scripts/process/build.sh` を使用すること。
-*   **E2Eテスト (Integration Test)**:
-    *   対象: VSCode拡張機能の挙動検証。
-    *   実行: `scripts/process/integration_test.sh --categories gui`。
-    *   制約: Test Driver Patternを使用し、VSCodeのインスタンスを起動して検証する。
+*   本リポジトリ（Neurom）には Frontend / VSCode 拡張のテスト対象は無い。
+*   将来追加する場合は別仕様で配置とランナーを定義すること。
 
 ### 4.2 テスト自動化
 

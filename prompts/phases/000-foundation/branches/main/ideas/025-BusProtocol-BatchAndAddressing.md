@@ -417,6 +417,9 @@ R5（自己配信の解消）が入れば直接の自己デッドロックは消
 上表の `integration_test.sh --specify` は統合テストが `tests/` へ移設された後に有効となり、
 それまでは `build.sh` および `cd features/neurom && go test -run ... ./integration/...` で代替する。
 
+
+> [!NOTE]
+> `--categories` および階層分離は仕様 030 実装後に使用可能。それ以前は `integration_test.sh` が無効で、統合テストは `build.sh` 側で実行されていた。
 ## 対応ステータス
 
 - **ステータス**: 未着手

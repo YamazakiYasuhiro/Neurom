@@ -7,25 +7,30 @@
 コンポーネントとテストレベルに応じて、適切なスクリプトを使用してください。
 
 
-| Component          | Test Level      | Command                                                | Purpose                      |
-| ------------------ | --------------- | ------------------------------------------------------ | ---------------------------- |
-| **Backend (Go)**   | **Unit**        | `scripts/process/build.sh --skip-frontend --skip-etc`  | ロジックの正当性確認。Fail Fast。        |
-| **Backend (Go)**   | **Integration** | `scripts/process/integration_test.sh`                  | コンテナやAPIとの連携確認。              |
-| **Frontend (GUI)** | **Unit**        | `scripts/process/build.sh`                             | Webviewコンポーネント等の単体テスト。       |
-| **Frontend (GUI)** | **E2E**         | `scripts/process/integration_test.sh --categories gui` | VSCode上での挙動検証 (Test Driver)。 |
-| **Full Stack**     | **Pipeline**    | `.agent/workflows/build-pipeline.md`                   | PR/コミット前の全体健全性確認。            |
+| Component          | Test Level      | Command                                                         | Purpose                         |
+| ------------------ | --------------- | --------------------------------------------------------------- | ------------------------------- |
+| **Backend (Go)**   | **Unit**        | `scripts/process/build.sh`                                      | 単体テスト + `go vet`。Fail Fast。   |
+| **Backend (Go)**   | **Integration** | `scripts/process/integration_test.sh --categories "..."`        | `features/*/integration/` の検証。 |
+| **Backend (Go)**   | **Race**        | `scripts/process/integration_test.sh --race --categories "..."` | データ競合の検出。Nightly / リリース前。     |
+| **Full Stack**     | **Pipeline**    | `.agent/workflows/build-pipeline.md`                            | PR/コミット前の全体健全性確認。               |
+
+利用可能なカテゴリ: `vram`, `monitor`, `bus`, `stats`, `lifecycle`, `palette`
+
+> [!NOTE]
+> 本リポジトリ（Neurom）には VSCode 拡張 / Playwright / Docker 前提の GUI E2E は無い。
+> 旧プロジェクト由来の `gui` / `llm` / `xvfb-run` / `--skip-etc` 等の記述は**使用しない**。
+> 以下の Linux / Remote-SSH / GUI 節は歴史的経緯で残っているが、Neurom の標準検証手順ではない。
 
 
-### Linux / Remote-SSH での全体ビルド (`build.sh`)
+### Linux / Remote-SSH での全体ビルド (`build.sh`) — 非適用（Neurom）
 
-ワークスペースの OS が **Linux** のとき、および **Cursor / VS Code の Remote-SSH でリモートが Linux** のとき、`scripts/process/build.sh` を実行する場合は **`--skip-etc`** を付けること（例: `./scripts/process/build.sh --skip-etc`）。`etc` 配下（`mcp-command-runner` / `image-inspector` 等）は Windows 向け前提やサンドボックス制約で失敗しやすいため。
+Neurom の `build.sh` は `--skip-etc` / `--skip-frontend` / `--backend-only` を**受け付けない**。
+フラグなしの `./scripts/process/build.sh` を使うこと。
 
-### Linux / Remote-SSH での統合テスト (`integration_test.sh`) — headless
+### Linux / Remote-SSH での統合テスト — 非適用（Neurom）
 
-同じく **Linux** または **Remote-SSH のリモートが Linux** のとき:
-
-1. **`--headed` と `--ui` を付けない**（拡張 GUI E2E は Playwright の **headless 既定**のままにする）。
-2. **`xvfb-run -a` で必ずラップ**してから `integration_test.sh` を実行する（**`./scripts/process/integration_test.sh` を直接実行しない**。`--categories` の有無や `--resume` / `--specify` の有無にかかわらず同様）。例: `xvfb-run -a ./scripts/process/integration_test.sh`、`xvfb-run -a ./scripts/process/integration_test.sh --categories llm`。根拠は `features/frontend/scripts/integration_test.sh` 先頭コメント。**`xvfb-run` が無い場合は Xvfb 系パッケージを導入してから実行**する。
+Neurom の統合テストは `features/*/integration/` 上の Go テストであり、Playwright / xvfb を必要としない。
+`./scripts/process/integration_test.sh --categories "..."` を直接実行する。
 
 ## 2. 実行順序のルール (Execution Order Rule)
 
@@ -34,61 +39,42 @@
 >
 > 統合テスト (`scripts/process/integration_test.sh`) を実行する前には、**必ず** ビルド (`scripts/process/build.sh`) を成功させてください。
 >
-> - 理由: 統合テストはビルド済みのバイナリ（拡張機能 `*.vsix` やサーバーバイナリ）や、コンパイル済みのWebviewアセットを使用します。ビルドをスキップしてソースコードだけ修正しても、テスト対象のバイナリは古いままとなり、修正が反映されません。
+> - 理由: 統合テストはビルド済みバイナリや、直前の単体テスト通過を前提とする。ビルドをスキップすると修正が反映されない／単体で落ちる変更を統合で抱え込む。
 > - 手順（ビルド成功後に統合テスト）:
 >   ```bash
->   # Linux、または Remote-SSH のリモートが Linux のとき
->   # build: --skip-etc。integration: --headed / --ui 禁止。xvfb-run -a は常に付ける（直接 integration_test.sh を叩かない）。xvfb-run が無い場合は Xvfb 系パッケージを導入する。
->   ./scripts/process/build.sh --skip-etc && xvfb-run -a ./scripts/process/integration_test.sh ...
->   ./scripts/process/build.sh --skip-etc && xvfb-run -a ./scripts/process/integration_test.sh --categories llm ...
->   # それ以外（例: macOS）— 検証方針に合わせてフラグを選ぶ
->   ./scripts/process/build.sh && ./scripts/process/integration_test.sh ...
+>   ./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories "vram"
+>   ./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories "stats,lifecycle"
+>   ./scripts/process/build.sh && ./scripts/process/integration_test.sh --require-tests
 >   ```
 
 ## 3. エラー修正フロー
 
 テストエラーが発生した場合、以下のフローで修正を行ってください。
 
-**Linux** または **Remote-SSH のリモートが Linux** のときは、この節および直下の **Tips** にある **`./scripts/process/integration_test.sh` を必ず `xvfb-run -a` でラップ**すること（直接実行しない）。
-
 1. **Fail Fast**: `scripts/process/build.sh` が失敗した場合、直ちに修正し再実行する。
-2. **Log Analysis**: バックエンドサーバー（Go）の問題解決には、`syslogd` コンテナのログを確認することが重要です。
-  - `scripts/setup/setup_containers.sh` により準備された環境で、以下のツールを使用してログを確認します。
-  - フィードバックを得る手段として積極的に活用してください。
+2. **Filter Execution**: 特定の統合テストのみ失敗した場合、`--categories` と `--specify` で絞り込んで再実行する。
   ```bash
-  # 直近のログを確認
-  ./scripts/utils/view-syslog.sh --tail 100
-
-  # ログを監視しながらテスト実行（別ターミナルで実行推奨）
-  ./scripts/utils/view-syslog.sh -f
+  ./scripts/process/integration_test.sh --categories "vram" --specify "TestPageSize"
   ```
-3. **Filter Execution**: 特定の統合テストのみ失敗した場合、`--specify` オプションを使用して**該当テストのみ**を再実行する。
+  これにより、全テスト実行を待つことなく高速にデバッグが可能。
+3. **Full Verification**: 修正後の確認ができたら、関連カテゴリまたは `--require-tests` 付きで全体を再実行し、リグレッションがないか確認する。
   ```bash
-  # Linux / Remote-SSH（リモートが Linux）
-  xvfb-run -a ./scripts/process/integration_test.sh --specify "TestAuthentication"
-  # それ以外（例: macOS）
-  ./scripts/process/integration_test.sh --specify "TestAuthentication"
+  ./scripts/process/build.sh && ./scripts/process/integration_test.sh --require-tests
   ```
-  これにより、全テスト実行（数分）を待つことなく高速にデバッグが可能。
-4. **Full Verification**: 修正後の確認ができたら、最後にオプションなしでスクリプトを実行し、リグレッションがないか確認する（**Linux / Remote-SSH** では `xvfb-run -a ./scripts/process/integration_test.sh`）。
 
 ### 効率的なテスト実行 (Tips)
 
-**Linux / Remote-SSH（リモートが Linux）** のときは、下記の `./scripts/process/integration_test.sh` を **`xvfb-run -a` でラップ**してから実行すること（§1 および上記セクション 3 と同じ）。
-
-- **GUIテストのみ実行**: VSCode拡張機能E2Eテストのみを行う場合。
+- **VRAM 系のみ**:
   ```bash
-  # Linux / Remote-SSH
-  xvfb-run -a ./scripts/process/integration_test.sh --categories gui
-  # それ以外（例: macOS）
-  ./scripts/process/integration_test.sh --categories gui
+  ./scripts/process/integration_test.sh --categories "vram"
   ```
-- **バックエンド統合テストのみ実行**: 特定のカテゴリ（例: llm）を指定する場合。
+- **統計とライフサイクル**:
   ```bash
-  # Linux / Remote-SSH
-  xvfb-run -a ./scripts/process/integration_test.sh --categories llm
-  # それ以外（例: macOS）
-  ./scripts/process/integration_test.sh --categories llm
+  ./scripts/process/integration_test.sh --categories "stats,lifecycle"
+  ```
+- **レース検証**（時間がかかる。コミット前やリリース前）:
+  ```bash
+  ./scripts/process/integration_test.sh --race --categories "vram,monitor"
   ```
 
 ## 4. 統合テストの構成と命名
@@ -98,11 +84,11 @@
 > `go test`, `npm test` コマンドを直接実行しないでください（特定ディレクトリでの開発作業を除く）。
 > 検証やPR前の確認では、必ず `scripts/process/integration_test.sh` または `scripts/process/build.sh` を使用してください。
 
-統合テストは `tests/integration/` (または `tests/`) 配下に配置し、ファイル名でカテゴリを識別します。
+統合テストは `features/{feature}/integration/` 配下に配置し、`integration_test.sh` のカテゴリ対応表で分類します。
 
-- **命名規則**: `{カテゴリ}_{機能名}_test.go`
-  - 例: `llm_adapter_test.go`, `server_huma_test.go`
-- **タグ**: ファイル先頭に `// +build integration` (または `//go:build integration`) を記述し、単体テストから除外すること。
+- **命名規則**: 機能が分かるファイル名（例: `vram_page_test.go`, `stats_http_test.go`）
+- **カテゴリ**: 新規ファイルを追加したら `scripts/process/integration_test.sh` の `CATEGORY_FILES` に必ず登録する（未登録はランナーが失敗する）
+- ビルドタグ (`//go:build integration`) は用いない。`build.sh` がパスで除外する。
 
 ## 5. 環境依存性
 

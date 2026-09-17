@@ -512,3 +512,53 @@
 #### [MODIFY] [prompts/specifications](prompts/specifications)（該当時のみ）
 
 *   テスト実行手順を述べている文書があれば新コマンドへ更新。無ければ変更しない。
+
+## 実施結果と総合判定
+
+**判定: PASS**（2026-09-18 実施）
+
+### 実施内容
+
+| Step | 内容 | 結果 |
+|---|---|---|
+| 1-2 | `build.sh` 階層分離 + vet + keep-going + 失敗判定 | PASS。所要 **16s**（以前約 50s）。`integration` パッケージはログに出現せず |
+| 3 | `integration_test.sh` 実効化 | PASS。`--categories` / `--race` / `--require-tests` / 未知カテゴリ拒否 |
+| 4 | マニフェスト + `tt prompt update` | PASS。全ターゲット反映。`.cursor/skills/create-specification` に新カテゴリ |
+| 5 | ideas 024–029 に NOTE | PASS |
+| 6 | Verification Plan | 下記 |
+
+### 検証結果
+
+| # | 検証 | 結果 |
+|---|---|---|
+| 1 | `./scripts/process/build.sh` | PASS（16s）。vet 実行。integration 除外 |
+| 2 | `--categories "vram"` | 11 テスト実行。`TestHTTPStats*` は 0 件 |
+| 3 | `--categories "does-not-exist"` | 終了コード 1、`Unknown category` |
+| 4 | `--categories "stats,lifecycle"` | 9 テスト PASS |
+| 5 | `--require-tests`（全カテゴリ） | PASS（45s） |
+| 6 | `--race --categories "vram,monitor"` | PASS。`DATA RACE` 0 件 |
+| 7 | 意図的単体失敗 | `Build pipeline FAILED (7s)` + Failed features 表示。終了 1。復元済み |
+| 8 | `tt prompt update` | cursor / antigravity / claude-code / codex すべて成功 |
+
+### 総合判定結果（testing-rules §12）
+
+**判定**: 動作確認完了
+
+#### テスト結果サマリ
+- 成功: 上記すべて
+- 失敗: 0
+- 事実上スキップ: 0（ランナーは実テスト名を出力）
+
+#### チェック項目の結果
+| # | チェック項目 | 結果 | 備考 |
+|---|------------|------|------|
+| 1 | スキップされたテスト | PASS | 旧 no-op 経路は撤去済み |
+| 2 | 部分的なエラー | PASS | race ログに WARNING なし |
+| 3 | 迂回処理による偽成功 | PASS | 未知カテゴリは失敗。未分類ファイル検出あり |
+| 4 | アダプタ・コンフィグ | PASS | マニフェストが実装と一致 |
+| 5 | テスト間依存 | PASS | カテゴリ分割実行でも通る |
+| 6 | カバレッジ | PASS | R1–R9 を実施。R10–R13 は計画どおり先送り |
+| 7 | 外部システム | PASS | コンテナ非依存 |
+
+#### 判定理由
+`integration_test.sh` が実際にテスト関数名を列挙して実行すること、`build.sh` が 16 秒台に短縮され失敗時も `FAILED` 行を出すこと、マニフェスト反映後のスキルが新カテゴリを指示することを根拠とする。

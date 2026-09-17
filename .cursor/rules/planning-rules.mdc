@@ -39,13 +39,13 @@ alwaysApply: false
     *   どのパッケージの、どの構造体/インターフェースに変更を加えるか。
     *   追加するAPIエンドポイントの定義（パス、メソッド、リクエスト/レスポンス）。
 *   **テスト計画 (Unit & Integration)**:
-    *   **Unit Tests**: テーブル駆動テスト (`tests := []struct{...}`) のケース設計。モックが必要な依存関係（DB, 外部API）。
-    *   **Integration Tests**: `tests/` 配下のどのファイルに追加するか。実際のDBやDockerコンテナとの連携確認手順。
+    *   **Unit Tests**: テーブル駆動テスト (`tests := []struct{...}`) のケース設計。モックが必要な依存関係。
+    *   **Integration Tests**: `features/{feature}/integration/` 配下のどのファイルに追加するか。
     *   **統合テスト必要性の判断基準**: 以下のいずれかに該当する場合、統合テストは**必須**です。
-        *   ファイルシステムへの書き込み/読み取りを行う
-        *   SQLite/DB 操作を行う
-        *   外部コマンド (git 等) を呼び出す
-        *   CLI サブコマンドとして利用者に提供される
+        *   バス経由のモジュール連携を行う
+        *   HTTP エンドポイントを公開する
+        *   複数ゴルーチン／ワーカーの協調を検証する
+        *   CLI として利用者に提供される
         *   上記のいずれにも該当しない純粋なロジックのみの場合は、単体テストのみで可。ただし Verification Plan にその理由を明記すること。
     *   記述順序: `Proposed Changes` では必ず `_test.go` を先に記述してください。
 
@@ -76,11 +76,11 @@ VSCode拡張機能およびWebviewの計画においては、GUI特有の検証�
 全ての検証は `scripts/` 配下のスクリプトを通じて行ってください。
 
 *   **Backend Track**:
-    *   Unit: `scripts/process/build.sh --skip-frontend --skip-etc`
-    *   Integration: `scripts/process/integration_test.sh`
-*   **Frontend Track**:
-    *   Unit (Webview): `./scripts/process/build.sh` (Prohibit direct `npm test` in plans)
-    *   E2E (VSCode): `scripts/process/integration_test.sh --categories gui`
+    *   Unit: `scripts/process/build.sh`（単体テスト + `go vet`。`features/*/integration/` は除外）
+    *   Integration: `scripts/process/integration_test.sh --categories "..."`
+    *   Race: `scripts/process/integration_test.sh --race --categories "..."`
+*   **統合テストの配置**: `features/{feature}/integration/`
+*   **利用可能なカテゴリ**: `vram`, `monitor`, `bus`, `stats`, `lifecycle`, `palette`
 
     **Note**: Do not use `cd` commands in plans. Use paths relative to the project root.
 
@@ -89,36 +89,37 @@ VSCode拡張機能およびWebviewの計画においては、GUI特有の検証�
     > You are **PROHIBITED** from suggesting raw `go build`, `go test`, or `npm run build` commands in implementation plans.
     > You **MUST** use the provided scripts (`scripts/process/build.sh`, `scripts/process/integration_test.sh`).
     > *Reason*: These scripts handle critical build steps (binary relocation, environment variables, incremental build logic) that raw commands miss.
+    > *Exception*: Do not invent `go test -race` in plans; use `integration_test.sh --race` instead.
 
 ### 3.2 テストファイルの配置と命名
 
-*   **Backend**: `package_test.go` (Unit), `tests/{cat}_{func}_test.go` (Integration)
-*   **Frontend**: `Component.test.tsx` (Unit), `ide/extension/e2e/scenarios/{scenario}.test.ts` (E2E)
+*   **Backend**: `*_test.go` next to the package (Unit), `features/{feature}/integration/*_test.go` (Integration)
+*   カテゴリは `integration_test.sh` 内のファイル対応表で定義する（ビルドタグは用いない）
 
 
 ### 3.3 ビルドと検証要件 (Build & Verification Requirement)
 
 実装計画の「Verification Plan」には、検証に行うための**スクリプト実行コマンド**を必ず明記してください。
-GUIの変更であっても、手動検証ではなく自動化された E2E テストを使用することを原則とします。
 
 *   **推奨記述例**:
-    1.  **Automated Verification**: Run `./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories gui --specify "New Feature"` to verify the UI changes.
+    1.  **Automated Verification**: Run `./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories "vram" --specify "TestPageSize"` to verify the change.
 
     > [!WARNING]
     > **Prohibition of Manual Verification**:
     > You are **PROHIBITED** from planning "Manual Verification" as the primary verification method.
-    > Do not write steps like "Open VSCode and click button". Instead, write "Create E2E test scenario to click button".
     > *Exception*: Strictly visual aesthetics (e.g. "Check if the color is correct") can be manual, but functional logic MUST be automated.
     
     *   **Prohibited Commands**:
         *   ❌ `npm run build`, `npm test`
-        *   ❌ `go build`, `go test`
+        *   ❌ `go build`, `go test`（`-race` 含む。`--race` フラグ付きスクリプトを使うこと）
         *   ❌ `cd ... && ...`
         *   ❌ `integration_test.sh` (STRICTLY PROHIBITED without preceding `build.sh`)
+        *   ❌ `build.sh --skip-frontend`, `build.sh --skip-etc`, `build.sh --backend-only`（存在しない）
     *   **Required Commands**:
-        *   ✅ `./scripts/process/build.sh && ./scripts/process/integration_test.sh`
+        *   ✅ `./scripts/process/build.sh`
+        *   ✅ `./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories "..."`
 
     > [!WARNING]
     > **Partial Build Flags in Final Verification**:
-    > `--backend-only`, `--skip-frontend`, `--skip-etc` は開発中の高速フィードバック用です。
-    > Verification Plan の最終検証コマンドには `./scripts/process/build.sh` (フラグなし) を使用してください。
+    > 最終検証コマンドには `./scripts/process/build.sh`（フラグなし）を使用してください。
+    > 開発中の再実行では `--keep-going` のみ任意で付けてよい。
