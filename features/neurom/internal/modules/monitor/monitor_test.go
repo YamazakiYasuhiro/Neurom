@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/axsh/neurom/internal/bus"
+	"github.com/axsh/neurom/internal/modules/vram"
 	"github.com/axsh/neurom/internal/stats"
 )
 
@@ -155,13 +156,14 @@ type mockVRAMAccessor struct {
 	vpY     int16
 }
 
-func (m *mockVRAMAccessor) VRAMBuffer() []uint8           { return m.index }
-func (m *mockVRAMAccessor) VRAMColorBuffer() []uint8       { return m.color }
-func (m *mockVRAMAccessor) VRAMWidth() int                 { return m.width }
-func (m *mockVRAMAccessor) VRAMHeight() int                { return m.height }
-func (m *mockVRAMAccessor) VRAMPalette() [256][4]uint8     { return m.palette }
-func (m *mockVRAMAccessor) DisplayPage() int               { return m.dpg }
-func (m *mockVRAMAccessor) ViewportOffset() (int16, int16) { return m.vpX, m.vpY }
+func (m *mockVRAMAccessor) Snapshot(dst *vram.Frame) {
+	dst.Index = append(dst.Index[:0], m.index...)
+	dst.Color = append(dst.Color[:0], m.color...)
+	dst.Width, dst.Height = m.width, m.height
+	dst.Palette = m.palette
+	dst.Page = m.dpg
+	dst.ViewX, dst.ViewY = m.vpX, m.vpY
+}
 
 func TestMonitorDirectRefresh(t *testing.T) {
 	b := newDummyBus()
