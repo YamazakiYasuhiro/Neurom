@@ -36,7 +36,7 @@ type StatsServer struct {
 	listener net.Listener
 }
 
-// New creates a StatsServer that listens on the given port.
+// New creates a StatsServer that listens on 127.0.0.1 at the given port.
 // Use port "0" for OS-assigned port (useful in tests).
 func New(vram VRAMStatsProvider, monitor MonitorStatsProvider, port string) *StatsServer {
 	s := &StatsServer{
@@ -49,8 +49,12 @@ func New(vram VRAMStatsProvider, monitor MonitorStatsProvider, port string) *Sta
 	mux.HandleFunc("GET /stats/vram", s.handleVRAM)
 	mux.HandleFunc("GET /stats/monitor", s.handleMonitor)
 
+	// Bind to loopback only. Binding to all interfaces makes Windows Defender
+	// raise a firewall permission dialog on every run, and the stats endpoint is
+	// a local development facility. This also matches the TCP bus bridge, which
+	// listens on 127.0.0.1.
 	s.server = &http.Server{
-		Addr:    ":" + port,
+		Addr:    net.JoinHostPort("127.0.0.1", port),
 		Handler: mux,
 	}
 	return s

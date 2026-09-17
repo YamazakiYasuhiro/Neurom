@@ -472,7 +472,7 @@ func main() {
 | R8: ドキュメント | 2 プロセス起動手順の記載と陳腐化修正 | `features/README.md` のレビュー（`cd features/vm` が残っていないこと） |
 | R9: 一方向依存 | 基盤が拡張ソフトを参照しない | `grep -rn "axsh/metov" features/neurom/`（0 件） |
 | R9: 低水準要素の排除 | 拡張ソフトが内部型を触らない | `grep -rn "internal/bus\|binary.BigEndian" features/metov/`（0 件） |
-| R10: 2 プロセス結合 | ヘッドレスで描画コマンドが計上される | `./bin/neurom.exe --headless --stats-port 8080` + `./bin/metov.exe` + `cd features/stats && go run . --endpoint http://localhost:8080/stats` |
+| R10: 2 プロセス結合 | ヘッドレスで描画コマンドが計上される | `./bin/neurom.exe --headless --stats-port 8080` + `./bin/metov.exe` + `cd features/stats && go run . --endpoint http://127.0.0.1:8080/stats` |
 | R10: CI 実行可能性 | GUI 不要・タイムアウト付きで完走する | `cd features/neurom && go test -v -count=1 -timeout 120s -run "TestTwoProcess" ./integration/...` |
 | R11: ランチャ | `--app` 指定で子プロセスが起動・停止する | `cd features/neurom && go test -v -count=1 -run "TestAppLauncher" ./integration/...` |
 | R12: 自動再接続 | Neurom 再起動後に再接続する | `cd features/metov && go test -v -count=1 -run "TestReconnect" ./...` |

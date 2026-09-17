@@ -39,7 +39,7 @@ type statsResponse struct {
 }
 
 func main() {
-	endpoint := flag.String("endpoint", "http://localhost:8080/stats", "Stats HTTP endpoint URL")
+	endpoint := flag.String("endpoint", "http://127.0.0.1:8080/stats", "Stats HTTP endpoint URL")
 	watch := flag.Bool("watch", false, "Continuously refresh stats every second")
 	flag.Parse()
 

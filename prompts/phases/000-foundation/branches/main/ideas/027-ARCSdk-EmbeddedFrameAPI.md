@@ -480,7 +480,7 @@ func (s *sceneTransform) Update(f *arc.Frame, t arc.Tick) {
 | R13: フレームスキップ | 遅延時に滞留 vsync が破棄され `Skipped` に計上 | `cd features/neurom && go test -v -count=1 -run "TestFrameSkip" ./arc/...` |
 | R13: 入力の非欠落 | 破棄した vsync の pressed が合成される | `cd features/neurom && go test -v -count=1 -run "TestFrameSkipInputMerge" ./arc/...` |
 | R14: シーン 2 の改善 | 画面全体が敷き詰められる | `./bin/neurom.exe` でシーン 2 を目視 |
-| R14: 破棄 0 件 | `/stats` の破棄件数が 0 | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://localhost:8080/stats` |
+| R14: 破棄 0 件 | `/stats` の破棄件数が 0 | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://127.0.0.1:8080/stats` |
 | R14: レート非依存 | 60Hz と 30Hz で見かけの速度が同等 | `./bin/neurom.exe --refresh-rate 60` と `--refresh-rate 30` を目視比較 |
 | R15: パレット生成 | HSV ランプ生成の境界値が正しい | `cd features/neurom && go test -v -count=1 -run "TestHSV" ./arc/...` |
 | R16: 図形補助 | 単色矩形が期待バイト列になる | `cd features/neurom && go test -v -count=1 -run "TestFillRect" ./arc/...` |

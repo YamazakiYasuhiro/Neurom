@@ -50,14 +50,14 @@ HTTP エンドポイント経由で neurom のパフォーマンス統計情報�
 cd features/stats
 
 # 1回取得して表示
-go run . --endpoint http://localhost:8080/stats
+go run . --endpoint http://127.0.0.1:8080/stats
 
 # 1秒ごとに自動更新
-go run . --endpoint http://localhost:8080/stats --watch
+go run . --endpoint http://127.0.0.1:8080/stats --watch
 ```
 
 **オプション:**
-- `--endpoint`: Stats HTTP エンドポイント URL（デフォルト: `http://localhost:8080/stats`）
+- `--endpoint`: Stats HTTP エンドポイント URL（デフォルト: `http://127.0.0.1:8080/stats`）
 - `--watch`: 1秒ごとにターミナルをクリアして統計情報を更新表示
 
 **表示例:**

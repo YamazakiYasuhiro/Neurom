@@ -535,7 +535,7 @@ func (v *VRAMModule) handleSetPageSize(msg *bus.BusMessage) {
 | R9: CLI 互換 | `--no-tcp` で送信・受信とも起動しない | `cd features/neurom && go test -v -count=1 -run "TestNoTCPFlag" ./integration/...` |
 | R10: 仕様書更新 | 記載項目の網羅を目視確認 | `prompts/specifications/VRAM-Specification.md` のレビュー |
 | R11: 参照クライアント | 外部スクリプトで接続・送信・受信ができる | `./bin/neurom.exe --headless` 起動後にスクリプトを実行 |
-| R12: 外部接続統計 | `/stats` に受信数・拒否数が現れる | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://localhost:8080/stats` |
+| R12: 外部接続統計 | `/stats` に受信数・拒否数が現れる | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://127.0.0.1:8080/stats` |
 | R13: `ZMQBus` の扱い | 削除の場合は参照 0 件、存置の場合は理由が文書化されている | `grep -rn "NewZMQBus" features/neurom/` |
 | 全体リグレッション | ビルド + 全単体テスト | `scripts/process/build.sh` |
 

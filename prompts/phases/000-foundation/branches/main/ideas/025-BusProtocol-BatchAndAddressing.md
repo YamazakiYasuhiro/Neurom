@@ -393,7 +393,7 @@ R5（自己配信の解消）が入れば直接の自己デッドロックは消
 | R2: 数値コマンド ID | ID ↔ Target 相互変換の全網羅テスト PASS | `cd features/neurom && go test -v -count=1 -run "TestCommandID" ./arcproto/...` |
 | R3: イベント合流 | 864 件バッチで `rect_updated` が 1 件のみ発行される | `cd features/neurom && go test -v -count=1 -run "TestBatchEventCoalesce" ./integration/...` |
 | R3: 状態イベント維持 | バッチ内の `set_display_page` が `display_page_changed` を発行する | `cd features/neurom && go test -v -count=1 -run "TestBatchStateEvent" ./integration/...` |
-| R4: 統計の粒度 | `/stats` にバッチ内の個別コマンド名が現れる | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://localhost:8080/stats` |
+| R4: 統計の粒度 | `/stats` にバッチ内の個別コマンド名が現れる | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://127.0.0.1:8080/stats` |
 | R5: アドレッシング是正 | `cmd.vram` 購読者が `evt.vram` を受信しない | `cd features/neurom && go test -v -count=1 -run "TestTopicMatches" ./internal/bus/...` |
 | R5: 全購読の維持 | `Subscribe("")` が全トピックを受信する | 同上テスト内で検証 |
 | R5: 自己配信の解消 | `/stats` に `rect_updated` 等のイベント名が現れない | `/stats` 出力の目視確認、および `TestStatsNoEventNames` |
