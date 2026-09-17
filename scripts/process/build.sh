@@ -4,20 +4,21 @@ set -euo pipefail
 # ============================================================
 # build.sh — Full Build & Unit Test Runner
 #
-# Builds the entire project and runs unit tests.
-# Integration tests (under tests/) are excluded;
+# Builds each Go feature and runs unit tests + go vet.
+# Integration packages (features/*/integration/) are excluded;
 # use integration_test.sh for those.
 #
 # Usage:
 #   ./scripts/process/build.sh [OPTIONS]
 #
 # Options:
-#   --backend-only   Run only the Go backend build & tests
+#   --keep-going     Continue after a feature failure; report all
+#                    failures at the end (exit 1 if any failed)
 #   --help           Show this help message
 #
 # Exit Codes:
 #   0 = All builds and tests passed
-#   1 = Build or test failure
+#   1 = Build, unit test, or go vet failure
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -43,27 +44,32 @@ show_help() {
     cat << 'EOF'
 Usage: ./scripts/process/build.sh [OPTIONS]
 
-Builds the entire project and runs unit tests.
-Integration tests (under tests/) are excluded.
+Builds each Go feature and runs unit tests + go vet.
+Integration packages under features/*/integration/ are excluded.
 
 Options:
+  --keep-going     Continue after a feature failure; list all failures
   --help           Show this help message
 
 Exit Codes:
   0 = All builds and tests passed
-  1 = Build or test failure
+  1 = Build, unit test, or go vet failure
 
 Examples:
-  # Full build
   ./scripts/process/build.sh
-
+  ./scripts/process/build.sh --keep-going
 EOF
 }
 
 # --- Argument Parsing ---
+KEEP_GOING=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --keep-going)
+            KEEP_GOING=true
+            shift
+            ;;
         --help|-h)
             show_help
             exit 0
@@ -78,6 +84,7 @@ done
 
 # --- Track overall result ---
 FAILED=false
+FAILED_FEATURES=()
 
 # ============================================================
 # Go Build & Unit Test
@@ -87,16 +94,12 @@ build_go() {
 
     cd "$PROJECT_ROOT"
 
-    # Ensure bin/ directory exists
     mkdir -p "$PROJECT_ROOT/bin"
 
-    # Enumerate features/{name}/ directories containing go.mod
     local found_any=false
     for feature_dir in features/*/; do
-        # Skip if glob didn't match (no features/ directories)
         [[ -d "$feature_dir" ]] || continue
 
-        # Only process directories that contain go.mod (Go projects)
         if [[ ! -f "$feature_dir/go.mod" ]]; then
             info "Skipping $feature_dir — no go.mod found."
             continue
@@ -109,10 +112,11 @@ build_go() {
         step "Feature: $feature_name"
         cd "$PROJECT_ROOT/$feature_dir"
 
-        # --- Unit Tests ---
-        info "Running Go unit tests for $feature_name (excluding tests/ directory)..."
+        # --- Unit Tests (exclude integration packages) ---
+        info "Running Go unit tests for $feature_name (excluding integration/)..."
 
-        UNIT_PKGS=$(go list ./... | grep -v '/tests/' | grep -v '/tests$' || true)
+        local UNIT_PKGS
+        UNIT_PKGS=$(go list ./... | grep -v '/integration$' | grep -v '/integration/' || true)
 
         if [[ -z "$UNIT_PKGS" ]]; then
             warn "No Go unit test packages found for $feature_name."
@@ -121,7 +125,31 @@ build_go() {
         else
             fail "Unit tests failed for $feature_name."
             FAILED=true
-            return 1
+            FAILED_FEATURES+=("$feature_name (unit)")
+            if [[ "$KEEP_GOING" != "true" ]]; then
+                return 1
+            fi
+            cd "$PROJECT_ROOT"
+            continue
+        fi
+
+        # --- go vet ---
+        if [[ -z "$UNIT_PKGS" ]]; then
+            warn "Skipping go vet for $feature_name — no packages."
+        else
+            info "Running go vet for $feature_name..."
+            if echo "$UNIT_PKGS" | xargs go vet; then
+                success "go vet passed for $feature_name."
+            else
+                fail "go vet failed for $feature_name."
+                FAILED=true
+                FAILED_FEATURES+=("$feature_name (vet)")
+                if [[ "$KEEP_GOING" != "true" ]]; then
+                    return 1
+                fi
+                cd "$PROJECT_ROOT"
+                continue
+            fi
         fi
 
         # --- Build ---
@@ -133,7 +161,12 @@ build_go() {
         else
             fail "Build failed for $feature_name."
             FAILED=true
-            return 1
+            FAILED_FEATURES+=("$feature_name (build)")
+            if [[ "$KEEP_GOING" != "true" ]]; then
+                return 1
+            fi
+            cd "$PROJECT_ROOT"
+            continue
         fi
 
         cd "$PROJECT_ROOT"
@@ -144,6 +177,11 @@ build_go() {
         warn "Expected structure: features/{name}/go.mod"
         return 0
     fi
+
+    if [[ "$FAILED" == "true" ]]; then
+        return 1
+    fi
+    return 0
 }
 
 # ============================================================
@@ -158,7 +196,7 @@ main() {
 
     local start_time=$SECONDS
 
-    build_go
+    build_go || true
 
     local elapsed=$(( SECONDS - start_time ))
     echo ""
@@ -166,6 +204,12 @@ main() {
 
     if [[ "$FAILED" == "true" ]]; then
         fail "Build pipeline FAILED (${elapsed}s)"
+        if [[ ${#FAILED_FEATURES[@]} -gt 0 ]]; then
+            echo -e "${RED}Failed features:${NC}"
+            for f in "${FAILED_FEATURES[@]}"; do
+                echo -e "  - $f"
+            done
+        fi
         echo -e "${RED}Fix the errors above before running integration tests.${NC}"
         exit 1
     else
