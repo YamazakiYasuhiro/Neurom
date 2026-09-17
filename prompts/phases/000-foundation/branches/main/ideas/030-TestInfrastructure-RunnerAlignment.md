@@ -52,6 +52,23 @@ scripts/process/integration_test.sh --categories "common"
 このスキルに従って書かれた仕様書（024 から 029 を含む）の検証コマンドは
 **実行不可能である**。
 
+同じ問題が他のルールにもある。
+
+- `planning-rules` は単体テストの実行を
+  `build.sh --skip-frontend --skip-etc` と規定しているが、
+  `build.sh` は `--help` 以外のオプションをすべて `Unknown option` で拒否する。
+  ヘッダのコメントが言及する `--backend-only` も引数解析に存在しない
+- `testing-rules` のテスト実行マトリクスも同じ 2 つのフラグを指定しており、
+  さらに `--categories gui`、Playwright、Docker コンテナ、`syslogd` など
+  Neurom に存在しない前提を含む
+- `planning-rules` は統合テストの配置を `tests/` 配下、
+  `testing-rules` は `tests/integration/` と規定しており、両者も一致しない
+
+つまり**ルールとスキルの全体が別プロジェクトから継承されたまま**であり、
+Neurom の実態に合わせる作業が必要である。
+本仕様では検証コマンドに直接関わる記述の是正までを対象とし、
+GUI や Docker 等の無関係な記述の整理は範囲外とする。
+
 ### 4. `build.sh` は失敗時に総合判定を出力しない
 
 `build.sh` は `set -euo pipefail` の下で `main` から `build_go` を呼ぶ（161 行）。
@@ -142,7 +159,7 @@ scripts/process/integration_test.sh --categories "common"
 | R2 | 検証階層を分離すること。`build.sh` は単体テストのみを実行し、統合テストを実行しないこと。除外条件はディレクトリ名 `tests` ではなく実在の配置に基づくこと |
 | R3 | `build.sh` の所要時間が統合テストの分だけ短縮されること（現状約 50 秒 → 単体テストのみで 10 秒台を目標とする） |
 | R4 | `integration_test.sh` が `--categories` を受け付けること。カテゴリは Neurom の実態に基づいて定義すること |
-| R5 | `create-specification` スキルが指示するカテゴリ名を実装と一致させること。変更は `prompts/manifest/code_content/procedures/create-specification.md` を編集し `tt prompt update` で反映すること（`.cursor/` 等を直接編集しないこと） |
+| R5 | `create-specification` スキルが指示するカテゴリ名を実装と一致させること。あわせて `planning-rules` と `testing-rules` が指定する存在しない `build.sh` のフラグ（`--skip-frontend`, `--skip-etc`, `--backend-only`）と、不一致な統合テスト配置（`tests/` と `tests/integration/`）を是正すること。変更は `prompts/manifest/code_content/` 配下のテンプレートを編集し `tt prompt update` で反映すること（`.cursor/` 等を直接編集しないこと） |
 | R6 | `build.sh` / `integration_test.sh` が失敗時にも総合判定行と経過時間を出力すること。終了コードは 1 を維持すること |
 | R7 | `build.sh` に `go vet` のゲートを追加すること。失敗時はどの feature のどのパッケージかが判別できること |
 
@@ -181,15 +198,14 @@ scripts/process/integration_test.sh --categories "common"
 この規約は現状の配置と一致しているため、テストコードの移動は不要である。
 
 > [!NOTE]
-> **設計判断（要確認）**: 統合テストの配置規約を `integration/` とするか、
-> 従来の想定どおり `tests/` に移動するかは選択の余地がある。
-> 本仕様は**既存の配置を正とし、スクリプトを実態に合わせる**方針を採る。
+> **設計判断（確定）**: 既存の配置 `features/*/integration/` を正とし、
+> スクリプトを実態に合わせる。`tests/` への移動は行わない。
 > テストコードを移動するよりスクリプトを直す方が影響範囲が小さく、
 > `build.sh` が統合テストを実行してしまう問題も同時に解消できるためである。
 
 ### カテゴリの定義
 
-Neurom の統合テストの実態に基づき、以下を提案する。
+Neurom の統合テストの実態に基づき、以下の 6 分類とする。
 
 | カテゴリ | 対象ファイル |
 | :--- | :--- |
@@ -205,9 +221,12 @@ Neurom の統合テストの実態に基づき、以下を提案する。
 カテゴリからテスト名の正規表現を組み立てる方式ならスクリプト側だけで完結する。
 
 > [!NOTE]
-> **設計判断（要確認）**: カテゴリの粒度。上記は 6 分類だが、
-> `vram` / `bus` / `stats` の 3 分類に粗くまとめる案もある。
-> 分類が細かいほど絞り込みは効くが、新規テスト追加時の分類漏れが起きやすい。
+> **設計判断（確定）**: 上記の 6 分類を採用する。
+> `vram` / `bus` / `stats` の 3 分類に粗くまとめる案もあったが、
+> 絞り込みの効きを優先した。
+> 細かい分類は新規テスト追加時の分類漏れを招きやすいため、
+> **どのカテゴリにも属さないテストファイルを検出したら失敗させること**を
+> 実装時の条件とする（R4 の一部）。
 
 ### `build.sh` の終了処理
 
