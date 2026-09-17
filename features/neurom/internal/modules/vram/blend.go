@@ -1,19 +1,25 @@
 package vram
 
-// BlendMode represents the pixel blending mode.
-type BlendMode uint8
+import "github.com/axsh/neurom/arcproto"
 
+// BlendMode re-exports the protocol definition so that callers of BlendPixel do
+// not need to import arcproto. It is an alias rather than a defined type, so the
+// two spellings are interchangeable.
+type BlendMode = arcproto.BlendMode
+
+// The wire values live in arcproto; the comments here describe what BlendPixel
+// computes for each mode.
 const (
 	// BlendReplace overwrites the destination with the source (no blending).
-	BlendReplace BlendMode = 0x00
+	BlendReplace = arcproto.BlendReplace
 	// BlendAlpha performs standard alpha compositing: dst = src*α + dst*(1-α).
-	BlendAlpha BlendMode = 0x01
+	BlendAlpha = arcproto.BlendAlpha
 	// BlendAdditive performs additive blending: dst = min(src*α + dst, 255).
-	BlendAdditive BlendMode = 0x02
+	BlendAdditive = arcproto.BlendAdditive
 	// BlendMultiply performs multiplicative blending: dst = src * dst / 255.
-	BlendMultiply BlendMode = 0x03
+	BlendMultiply = arcproto.BlendMultiply
 	// BlendScreen performs screen blending: dst = 255 - (255-src)*(255-dst)/255.
-	BlendScreen BlendMode = 0x04
+	BlendScreen = arcproto.BlendScreen
 )
 
 // BlendPixel computes the blended RGBA output for a single pixel.

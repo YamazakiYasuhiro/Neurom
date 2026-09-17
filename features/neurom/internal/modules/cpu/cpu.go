@@ -2,12 +2,12 @@ package cpu
 
 import (
 	"context"
-	"encoding/binary"
 	"log"
 	"math"
 	"sync"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 )
 
@@ -39,7 +39,7 @@ func (c *CPUModule) Name() string {
 }
 
 func (c *CPUModule) Start(ctx context.Context, b bus.Bus) error {
-	sysCh, err := b.Subscribe("system")
+	sysCh, err := b.Subscribe(arcproto.TopicSystem)
 	if err != nil {
 		return err
 	}
@@ -60,10 +60,7 @@ func (c *CPUModule) Stop() error {
 }
 
 func (c *CPUModule) run(ctx context.Context, b bus.Bus, sysCh <-chan *bus.BusMessage) {
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target: "mode", Operation: bus.OpCommand,
-		Data: []byte{0x00, 0x01, 0x00}, Source: c.Name(),
-	})
+	c.publish(b, arcproto.Mode{})
 	time.Sleep(300 * time.Millisecond)
 
 	scenes := []scene{
@@ -120,128 +117,72 @@ func (c *CPUModule) resetScene(b bus.Bus) {
 
 // --- Helper functions ---
 
-func (c *CPUModule) publishClearVRAM(b bus.Bus, page, paletteIdx uint8) {
-	b.Publish("vram", &bus.BusMessage{
-		Target: "clear_vram", Operation: bus.OpCommand,
-		Data: []byte{page, paletteIdx}, Source: c.Name(),
+// publish sends a protocol command to the VRAM module.
+func (c *CPUModule) publish(b bus.Bus, cmd arcproto.Command) {
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: cmd.Target(), Operation: bus.OpCommand,
+		Data: cmd.Encode(), Source: c.Name(),
 	})
 }
 
+func (c *CPUModule) publishClearVRAM(b bus.Bus, page, paletteIdx uint8) {
+	c.publish(b, arcproto.ClearVRAM{Page: page, PaletteIdx: paletteIdx})
+}
+
 func (c *CPUModule) publishBlitRect(b bus.Bus, page uint8, x, y, w, h uint16, blendMode uint8, pixels []uint8) {
-	data := make([]byte, 10+len(pixels))
-	data[0] = page
-	binary.BigEndian.PutUint16(data[1:], x)
-	binary.BigEndian.PutUint16(data[3:], y)
-	binary.BigEndian.PutUint16(data[5:], w)
-	binary.BigEndian.PutUint16(data[7:], h)
-	data[9] = blendMode
-	copy(data[10:], pixels)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "blit_rect", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
+	c.publish(b, arcproto.BlitRect{
+		Page: page, X: x, Y: y, W: w, H: h,
+		Blend: arcproto.BlendMode(blendMode), Pixels: pixels,
 	})
 }
 
 func (c *CPUModule) publishBlitRectTransform(b bus.Bus, page uint8, x, y, srcW, srcH, pivotX, pivotY uint16, rotation uint8, scaleX, scaleY uint16, blendMode uint8, pixels []uint8) {
-	data := make([]byte, 19+len(pixels))
-	data[0] = page
-	binary.BigEndian.PutUint16(data[1:], x)
-	binary.BigEndian.PutUint16(data[3:], y)
-	binary.BigEndian.PutUint16(data[5:], srcW)
-	binary.BigEndian.PutUint16(data[7:], srcH)
-	binary.BigEndian.PutUint16(data[9:], pivotX)
-	binary.BigEndian.PutUint16(data[11:], pivotY)
-	data[13] = rotation
-	binary.BigEndian.PutUint16(data[14:], scaleX)
-	binary.BigEndian.PutUint16(data[16:], scaleY)
-	data[18] = blendMode
-	copy(data[19:], pixels)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "blit_rect_transform", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
+	c.publish(b, arcproto.BlitRectTransform{
+		Page: page, X: x, Y: y, SrcW: srcW, SrcH: srcH,
+		PivotX: pivotX, PivotY: pivotY,
+		Rotation: arcproto.Rotation(rotation),
+		ScaleX:   arcproto.Scale(scaleX), ScaleY: arcproto.Scale(scaleY),
+		Blend: arcproto.BlendMode(blendMode), Pixels: pixels,
 	})
 }
 
 func (c *CPUModule) publishCopyRect(b bus.Bus, srcPage, dstPage uint8, srcX, srcY, dstX, dstY, w, h uint16) {
-	data := make([]byte, 14)
-	data[0] = srcPage
-	data[1] = dstPage
-	binary.BigEndian.PutUint16(data[2:], srcX)
-	binary.BigEndian.PutUint16(data[4:], srcY)
-	binary.BigEndian.PutUint16(data[6:], dstX)
-	binary.BigEndian.PutUint16(data[8:], dstY)
-	binary.BigEndian.PutUint16(data[10:], w)
-	binary.BigEndian.PutUint16(data[12:], h)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "copy_rect", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
+	c.publish(b, arcproto.CopyRect{
+		SrcPage: srcPage, DstPage: dstPage,
+		SrcX: srcX, SrcY: srcY, DstX: dstX, DstY: dstY, W: w, H: h,
 	})
 }
 
 func (c *CPUModule) publishSetPaletteBlock(b bus.Bus, start, count uint8, colors [][4]uint8) {
-	data := make([]byte, 2+int(count)*4)
-	data[0] = start
-	data[1] = count
-	for i := range int(count) {
-		off := 2 + i*4
-		data[off] = colors[i][0]
-		data[off+1] = colors[i][1]
-		data[off+2] = colors[i][2]
-		data[off+3] = colors[i][3]
+	cols := make([]arcproto.Color, count)
+	for i := range cols {
+		cols[i] = arcproto.Color{R: colors[i][0], G: colors[i][1], B: colors[i][2], A: colors[i][3]}
 	}
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette_block", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SetPaletteBlock{Start: start, Colors: cols})
 }
 
 func (c *CPUModule) publishSetPageCount(b bus.Bus, count uint8) {
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_count", Operation: bus.OpCommand,
-		Data: []byte{count}, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SetPageCount{Count: count})
 }
 
 func (c *CPUModule) publishSetDisplayPage(b bus.Bus, page uint8) {
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_display_page", Operation: bus.OpCommand,
-		Data: []byte{page}, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SetDisplayPage{Page: page})
 }
 
 func (c *CPUModule) publishSwapPages(b bus.Bus, page1, page2 uint8) {
-	b.Publish("vram", &bus.BusMessage{
-		Target: "swap_pages", Operation: bus.OpCommand,
-		Data: []byte{page1, page2}, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SwapPages{Page1: page1, Page2: page2})
 }
 
 func (c *CPUModule) publishCopyPage(b bus.Bus, src, dst uint8) {
-	b.Publish("vram", &bus.BusMessage{
-		Target: "copy_page", Operation: bus.OpCommand,
-		Data: []byte{src, dst}, Source: c.Name(),
-	})
+	c.publish(b, arcproto.CopyPage{Src: src, Dst: dst})
 }
 
 func (c *CPUModule) publishSetPageSize(b bus.Bus, page uint8, w, h uint16) {
-	data := make([]byte, 5)
-	data[0] = page
-	binary.BigEndian.PutUint16(data[1:], w)
-	binary.BigEndian.PutUint16(data[3:], h)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_size", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SetPageSize{Page: page, W: w, H: h})
 }
 
 func (c *CPUModule) publishSetViewport(b bus.Bus, offX, offY int16) {
-	data := make([]byte, 4)
-	binary.BigEndian.PutUint16(data[0:], uint16(offX))
-	binary.BigEndian.PutUint16(data[2:], uint16(offY))
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_viewport", Operation: bus.OpCommand,
-		Data: data, Source: c.Name(),
-	})
+	c.publish(b, arcproto.SetViewport{OffX: offX, OffY: offY})
 }
 
 // --- Scene 1: Palette+Clear (HSV cycling) ---

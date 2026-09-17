@@ -2,7 +2,7 @@ package integration
 
 import (
 	"context"
-	"encoding/binary"
+	"github.com/axsh/neurom/arcproto"
 	"testing"
 	"time"
 
@@ -26,7 +26,7 @@ func TestDemoProgram(t *testing.T) {
 	mgr.Register(vramMod)
 	mgr.Register(mon)
 
-	ch, err := b.Subscribe("vram_update")
+	ch, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
@@ -91,27 +91,26 @@ func setupEnhancementTestEnv(t *testing.T) (*bus.ChannelBus, *vram.VRAMModule, *
 }
 
 func blitIntegration(page uint8, x, y, w, h uint16, blend uint8, pixels []byte) *bus.BusMessage {
-	data := make([]byte, 10+len(pixels))
-	data[0] = page
-	binary.BigEndian.PutUint16(data[1:], x)
-	binary.BigEndian.PutUint16(data[3:], y)
-	binary.BigEndian.PutUint16(data[5:], w)
-	binary.BigEndian.PutUint16(data[7:], h)
-	data[9] = blend
-	copy(data[10:], pixels)
-	return &bus.BusMessage{Target: "blit_rect", Operation: bus.OpCommand, Data: data, Source: "test"}
+	cmd := arcproto.BlitRect{
+		Page: page, X: x, Y: y, W: w, H: h,
+		Blend: arcproto.BlendMode(blend), Pixels: pixels,
+	}
+	return &bus.BusMessage{
+		Target: cmd.Target(), Operation: bus.OpCommand,
+		Data: cmd.Encode(), Source: "test",
+	}
 }
 
 func TestBlitAndReadRect(t *testing.T) {
 	b, _, _, _ := setupEnhancementTestEnv(t)
 
-	ch, err := b.Subscribe("vram_update")
+	ch, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{5, 50, 100, 150, 255}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -120,31 +119,29 @@ func TestBlitAndReadRect(t *testing.T) {
 	for i := range pixels {
 		pixels[i] = 5
 	}
-	b.Publish("vram", blitIntegration(0, 10, 20, 4, 4, 0x00, pixels))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 10, 20, 4, 4, 0x00, pixels))
 	time.Sleep(50 * time.Millisecond)
 
 	for len(ch) > 0 {
 		<-ch
 	}
 
-	// read_rect: [page:u8][x:u16][y:u16][w:u16][h:u16]
-	readData := make([]byte, 9)
-	readData[0] = 0
-	binary.BigEndian.PutUint16(readData[1:], 10)
-	binary.BigEndian.PutUint16(readData[3:], 20)
-	binary.BigEndian.PutUint16(readData[5:], 4)
-	binary.BigEndian.PutUint16(readData[7:], 4)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "read_rect", Operation: bus.OpCommand, Data: readData, Source: "test",
+	readCmd := arcproto.ReadRect{Page: 0, X: 10, Y: 20, W: 4, H: 4}
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: readCmd.Target(), Operation: bus.OpCommand,
+		Data: readCmd.Encode(), Source: "test",
 	})
 
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
 		case msg := <-ch:
-			if msg.Target == "rect_data" {
-				respPixels := msg.Data[8:]
-				for i, px := range respPixels {
+			if msg.Target == arcproto.EventRectData {
+				e, err := arcproto.DecodeRectData(msg.Data)
+				if err != nil {
+					t.Fatalf("DecodeRectData() error = %v", err)
+				}
+				for i, px := range e.Pixels {
 					if px != 5 {
 						t.Errorf("pixel[%d] = %d, want 5", i, px)
 					}
@@ -160,19 +157,19 @@ func TestBlitAndReadRect(t *testing.T) {
 func TestAlphaBlendPipeline(t *testing.T) {
 	b, vramMod, _, _ := setupEnhancementTestEnv(t)
 
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{1, 255, 0, 0, 255}, Source: "test",
 	})
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{2, 0, 0, 255, 128}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
-	b.Publish("vram", blitIntegration(0, 0, 0, 2, 2, 0x00, []byte{1, 1, 1, 1}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 0, 0, 2, 2, 0x00, []byte{1, 1, 1, 1}))
 	time.Sleep(50 * time.Millisecond)
-	b.Publish("vram", blitIntegration(0, 0, 0, 2, 2, 0x01, []byte{2, 2, 2, 2}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 0, 0, 2, 2, 0x01, []byte{2, 2, 2, 2}))
 	time.Sleep(100 * time.Millisecond)
 
 	cb := vramMod.VRAMColorBuffer()

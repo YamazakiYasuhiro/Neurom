@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/module"
 	"github.com/axsh/neurom/internal/modules/cpu"
@@ -24,7 +25,7 @@ func TestVRAMMonitorIntegration(t *testing.T) {
 	mgr.Register(monitor.New(monitor.MonitorConfig{Headless: true}))
 
 	// Subscribe to internal bus from outside to observe
-	ch, err := b.Subscribe("vram_update")
+	ch, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}

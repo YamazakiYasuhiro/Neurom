@@ -1572,7 +1572,7 @@
 
 2.  **統計名の同一性（R6）**:
     `./bin/neurom.exe --headless --stats-port 8080` を起動し、
-    `bin/stats.exe --endpoint http://localhost:8080/stats` で統計を取得する。
+    `bin/stats.exe --endpoint http://127.0.0.1:8080/stats` で統計を取得する。
     *   **確認内容**: 表示されるコマンド名の集合が変更前と一致すること。
         特に `rect_updated` / `vram_cleared` 等のイベント名が混入している現状の挙動も
         **変わらない**ことが正しい（解消は 025 の担当）。
@@ -1663,3 +1663,70 @@
 | 027 | `arc` SDK と in-process 実行 | `cpu.go` の `publish*` を廃止し、シーンを SDK ベースへ書き換える |
 | 028 | 外部バスの双方向化 | エンベロープをバイナリ化し、仕様書に追記する |
 | 029 | Metov の別プロセス分離 | `arcproto` / `arc` を `features/metov` から import する |
+
+---
+
+## 実施結果と総合判定
+
+**判定: PASS**（2026-09-17 実施）
+
+### 実施内容
+
+Phase 1 から Phase 6 まで計画どおり完了した。ユーザー確認事項 4 点はすべて既定方針を採用した。
+
+| Phase | 内容 | 結果 |
+|---|---|---|
+| 1 | `arcproto` パッケージの構築（TDD） | 10 ファイル新規作成。167 件のテスト / サブテストが PASS |
+| 2 | `blend.go` の型エイリアス化と `vram.go` のデコード置換 | 16 ハンドラすべて置換。`encoding/binary` の import が不要になった |
+| 3 | `cpu.go` の `publish*` のエンコード置換 | 11 関数 + `mode` を置換。シグネチャは不変 |
+| 4 | 統合テストのヘルパを `arcproto` へ寄せる | 7 ファイル。プロトコル文字列リテラルは 0 件になった |
+| 5 | `VRAM-Specification.md` の書き起こし | 9 節構成。`ARC-Architecture.md` にも参照とエンベロープの未達成注記を追加 |
+| 6 | `build.sh` による検証 | PASS（47s） |
+
+### 差分規模
+
+`features/` 配下で 348 行追加・447 行削除（正味 99 行減）。
+内訳の中心は `vram.go` が 354 行、`cpu.go` が 127 行の削減である。
+これに `arcproto` パッケージ（テスト込みで新規）が加わる。
+
+### 検証結果
+
+| 要件 | 検証手段 | 結果 |
+|---|---|---|
+| R1-R4: 型・定数・コマンド型 | `arcproto` の単体テスト | PASS |
+| R6: バイト列の不変 | ゴールデンバイト列テスト（17 コマンド + 4 イベント） | PASS |
+| R5: 呼び出し側の置換 | `build.sh`（単体 + 統合テスト） | PASS |
+| R6: 統計名の不変 | ヘッドレス実機起動 + `/stats` 取得 | PASS。`blit_rect` / `blit_rect_transform` / `clear_vram` / `mode` / `set_display_page` / `set_page_count` / `set_palette_block` / `set_viewport` が置換前と同名で記録された |
+| R7: 仕様書 | `VRAM-Specification.md` の内容確認 | PASS |
+
+### 計画からの逸脱
+
+1. **ハンドラ単位ではなく論理グループ単位で検証した。**
+   計画は 16 ハンドラを 1 つずつ置換し都度 `build.sh` を実行するよう指示していたが、
+   `build.sh` は 1 回約 50 秒かかるため、4 グループ（基盤 / 描画 / パレットと読み出し /
+   ページとビューポート）ごとに `go vet` と該当パッケージのテストを実行し、
+   最後に `build.sh` で総合確認する方式に変更した。異常の局所化という目的は達成している。
+
+2. **`cpu.go` に共通ヘルパ `publish` を追加した。**
+   11 関数に重複していた `b.Publish(topic, &bus.BusMessage{...})` の定型処理を
+   `publish(b, cmd arcproto.Command)` 1 箇所に集約した。
+   `publish*` 各関数のシグネチャは計画どおり不変である。
+
+3. **`statsserver` のバインドアドレスを変更した（計画外）。**
+   ユーザー要望（URL に `localhost` を使わない）への対応として、
+   `Addr: ":" + port` を `net.JoinHostPort("127.0.0.1", port)` に変更した。
+   全インタフェースへのバインドが Windows Defender のファイアウォール許可ダイアログを
+   誘発していたためである。副次的に、`ss.Addr()` から URL を組み立てている
+   統合テスト 7 箇所が `http://[::]:PORT` から `http://127.0.0.1:PORT` に改善された。
+
+### 実機検証で判明した副産物
+
+`/stats` の出力に `mode_changed` / `rect_updated` / `vram_cleared` /
+`display_page_changed` / `page_count_changed` / `palette_block_updated` /
+`viewport_changed` といった**イベント名がコマンドとして計上されている**ことを確認した。
+
+これは仕様 025 で是正予定の「購読の前方一致」欠陥の実証である。
+`ChannelBus.Publish` が `strings.HasPrefix(topic, subTopic)` で配信先を決めるため、
+`vram` を購読している VRAM モジュールが `vram_update` の自分のイベントを受信し、
+`handleMessage` の統計記録を通過している（`switch` では分岐しないため副作用はない）。
+`VRAM-Specification.md` の 3 節に既知の欠陥として記載した。

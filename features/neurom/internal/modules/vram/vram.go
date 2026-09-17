@@ -2,11 +2,11 @@ package vram
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"log"
 	"sync"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/stats"
 )
@@ -75,11 +75,11 @@ func (v *VRAMModule) Name() string { return "VRAM" }
 
 func (v *VRAMModule) Start(ctx context.Context, b bus.Bus) error {
 	v.bus = b
-	ch, err := b.Subscribe("vram")
+	ch, err := b.Subscribe(arcproto.TopicVRAM)
 	if err != nil {
 		return err
 	}
-	sysCh, err := b.Subscribe("system")
+	sysCh, err := b.Subscribe(arcproto.TopicSystem)
 	if err != nil {
 		return err
 	}
@@ -128,8 +128,8 @@ func (v *VRAMModule) publishStats() {
 	snap := v.stats.Snapshot()
 	payload := map[string]any{"commands": snap}
 	data, _ := json.Marshal(payload)
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "stats_data", Operation: bus.OpCommand, Data: data, Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventStatsData, Operation: bus.OpCommand, Data: data, Source: v.Name(),
 	})
 }
 
@@ -151,7 +151,7 @@ func (v *VRAMModule) handleMessage(msg *bus.BusMessage) {
 	if msg.Operation != bus.OpCommand {
 		return
 	}
-	if msg.Target == "get_stats" {
+	if msg.Target == arcproto.TargetGetStats {
 		v.publishStats()
 		return
 	}
@@ -163,42 +163,43 @@ func (v *VRAMModule) handleMessage(msg *bus.BusMessage) {
 	defer v.mu.Unlock()
 
 	switch msg.Target {
-	case "mode":
+	case arcproto.TargetMode:
+		// The payload is not inspected: the command only reinitialises page 0.
 		pg := &v.pages[0]
 		pg.index = make([]uint8, pg.width*pg.height)
 		pg.color = make([]uint8, pg.width*pg.height*4)
-		v.bus.Publish("vram_update", &bus.BusMessage{
-			Target: "mode_changed", Operation: bus.OpCommand, Source: v.Name(),
+		v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+			Target: arcproto.EventModeChanged, Operation: bus.OpCommand, Source: v.Name(),
 		})
-	case "draw_pixel":
+	case arcproto.TargetDrawPixel:
 		v.handleDrawPixel(msg)
-	case "set_palette":
+	case arcproto.TargetSetPalette:
 		v.handleSetPalette(msg)
-	case "clear_vram":
+	case arcproto.TargetClearVRAM:
 		v.handleClearVRAM(msg)
-	case "blit_rect":
+	case arcproto.TargetBlitRect:
 		v.handleBlitRect(msg)
-	case "blit_rect_transform":
+	case arcproto.TargetBlitRectTransform:
 		v.handleBlitRectTransform(msg)
-	case "read_rect":
+	case arcproto.TargetReadRect:
 		v.handleReadRect(msg)
-	case "copy_rect":
+	case arcproto.TargetCopyRect:
 		v.handleCopyRect(msg)
-	case "set_palette_block":
+	case arcproto.TargetSetPaletteBlock:
 		v.handleSetPaletteBlock(msg)
-	case "read_palette_block":
+	case arcproto.TargetReadPaletteBlock:
 		v.handleReadPaletteBlock(msg)
-	case "set_page_count":
+	case arcproto.TargetSetPageCount:
 		v.handleSetPageCount(msg)
-	case "set_display_page":
+	case arcproto.TargetSetDisplayPage:
 		v.handleSetDisplayPage(msg)
-	case "swap_pages":
+	case arcproto.TargetSwapPages:
 		v.handleSwapPages(msg)
-	case "copy_page":
+	case arcproto.TargetCopyPage:
 		v.handleCopyPage(msg)
-	case "set_page_size":
+	case arcproto.TargetSetPageSize:
 		v.handleSetPageSize(msg)
-	case "set_viewport":
+	case arcproto.TargetSetViewport:
 		v.handleSetViewport(msg)
 	}
 }
@@ -245,20 +246,19 @@ func (v *VRAMModule) parallelRowsFn(command string, width int) func(int, func(in
 
 // --- Drawing commands ---
 
-// Format: [page:u8][x:u16][y:u16][p:u8]
 func (v *VRAMModule) handleDrawPixel(msg *bus.BusMessage) {
-	if len(msg.Data) < 6 {
+	c, err := arcproto.DecodeDrawPixel(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	pg := &v.pages[page]
-	x := int(binary.BigEndian.Uint16(msg.Data[1:]))
-	y := int(binary.BigEndian.Uint16(msg.Data[3:]))
-	p := msg.Data[5]
+	x, y := int(c.X), int(c.Y)
+	p := c.P
 	if x < pg.width && y < pg.height {
 		idx := y*pg.width + x
 		pg.index[idx] = p
@@ -267,42 +267,30 @@ func (v *VRAMModule) handleDrawPixel(msg *bus.BusMessage) {
 		pg.color[idx*4+1] = pal[1]
 		pg.color[idx*4+2] = pal[2]
 		pg.color[idx*4+3] = pal[3]
-		v.bus.Publish("vram_update", &bus.BusMessage{
-			Target: "vram_updated", Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
+		v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+			Target: arcproto.EventVRAMUpdated, Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
 		})
 	}
 }
 
-// Format (4 bytes): [index:u8][R:u8][G:u8][B:u8] — alpha defaults to 255
-// Format (5 bytes): [index:u8][R:u8][G:u8][B:u8][A:u8]
 func (v *VRAMModule) handleSetPalette(msg *bus.BusMessage) {
-	if len(msg.Data) < 4 {
+	c, err := arcproto.DecodeSetPalette(msg.Data)
+	if err != nil {
 		return
 	}
-	index := msg.Data[0]
-	r, g, b := msg.Data[1], msg.Data[2], msg.Data[3]
-	a := uint8(255)
-	if len(msg.Data) >= 5 {
-		a = msg.Data[4]
-	}
-	v.palette[index] = [4]uint8{r, g, b, a}
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "palette_updated", Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
+	v.palette[c.Index] = [4]uint8{c.Color.R, c.Color.G, c.Color.B, c.Color.A}
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPaletteUpdated, Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
 	})
 }
 
-// Format: [page:u8][palette_idx:u8] (palette_idx optional, defaults to 0)
 func (v *VRAMModule) handleClearVRAM(msg *bus.BusMessage) {
-	page := 0
-	paletteIdx := uint8(0)
-	if len(msg.Data) >= 1 {
-		page = int(msg.Data[0])
-	}
-	if len(msg.Data) >= 2 {
-		paletteIdx = msg.Data[1]
-	}
+	// This decoder never fails: both fields default to zero when absent.
+	c, _ := arcproto.DecodeClearVRAM(msg.Data)
+	page := int(c.Page)
+	paletteIdx := c.PaletteIdx
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	pg := &v.pages[page]
@@ -319,29 +307,27 @@ func (v *VRAMModule) handleClearVRAM(msg *bus.BusMessage) {
 			}
 		}
 	})
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "vram_cleared", Operation: bus.OpCommand,
-		Data: []byte{uint8(page), paletteIdx}, Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventVRAMCleared, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [dst_page:u8][dst_x:u16][dst_y:u16][w:u16][h:u16][blend_mode:u8][pixel_data...]
 func (v *VRAMModule) handleBlitRect(msg *bus.BusMessage) {
-	if len(msg.Data) < 10 {
+	c, err := arcproto.DecodeBlitRect(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	pg := &v.pages[page]
-	dstX := int(binary.BigEndian.Uint16(msg.Data[1:]))
-	dstY := int(binary.BigEndian.Uint16(msg.Data[3:]))
-	w := int(binary.BigEndian.Uint16(msg.Data[5:]))
-	h := int(binary.BigEndian.Uint16(msg.Data[7:]))
-	blendMode := BlendMode(msg.Data[9])
-	pixelData := msg.Data[10:]
+	dstX, dstY := int(c.X), int(c.Y)
+	w, h := int(c.W), int(c.H)
+	blendMode := c.Blend
+	pixelData := c.Pixels
 
 	if len(pixelData) < w*h {
 		return
@@ -384,38 +370,30 @@ func (v *VRAMModule) handleBlitRect(msg *bus.BusMessage) {
 	v.publishRectEvent(cx, cy, cw, ch)
 }
 
-// Format: [dst_page:u8][dst_x:u16][dst_y:u16][src_w:u16][src_h:u16]
-//
-//	[pivot_x:u16][pivot_y:u16][rotation:u8][scale_x:u16][scale_y:u16]
-//	[blend_mode:u8][pixel_data...]
 func (v *VRAMModule) handleBlitRectTransform(msg *bus.BusMessage) {
-	if len(msg.Data) < 19 {
+	c, err := arcproto.DecodeBlitRectTransform(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	pg := &v.pages[page]
-	dstX := int(binary.BigEndian.Uint16(msg.Data[1:]))
-	dstY := int(binary.BigEndian.Uint16(msg.Data[3:]))
-	srcW := int(binary.BigEndian.Uint16(msg.Data[5:]))
-	srcH := int(binary.BigEndian.Uint16(msg.Data[7:]))
-	pivotX := int(binary.BigEndian.Uint16(msg.Data[9:]))
-	pivotY := int(binary.BigEndian.Uint16(msg.Data[11:]))
-	rotation := msg.Data[13]
-	scaleX := binary.BigEndian.Uint16(msg.Data[14:])
-	scaleY := binary.BigEndian.Uint16(msg.Data[16:])
-	blendMode := BlendMode(msg.Data[18])
-	pixelData := msg.Data[19:]
+	dstX, dstY := int(c.X), int(c.Y)
+	srcW, srcH := int(c.SrcW), int(c.SrcH)
+	pivotX, pivotY := int(c.PivotX), int(c.PivotY)
+	blendMode := c.Blend
+	pixelData := c.Pixels
 
 	if len(pixelData) < srcW*srcH {
 		return
 	}
 
 	transformed, outW, outH, offX, offY := TransformBlitParallel(
-		pixelData, srcW, srcH, pivotX, pivotY, rotation, scaleX, scaleY,
+		pixelData, srcW, srcH, pivotX, pivotY,
+		uint8(c.Rotation), uint16(c.ScaleX), uint16(c.ScaleY),
 		v.parallelRowsFn("blit_rect_transform", srcW),
 	)
 	if transformed == nil {
@@ -461,28 +439,21 @@ func (v *VRAMModule) handleBlitRectTransform(msg *bus.BusMessage) {
 	v.publishRectEvent(dstX+offX, dstY+offY, outW, outH)
 }
 
-// Format: [page:u8][x:u16][y:u16][w:u16][h:u16]
 func (v *VRAMModule) handleReadRect(msg *bus.BusMessage) {
-	if len(msg.Data) < 9 {
+	c, err := arcproto.DecodeReadRect(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	pg := &v.pages[page]
-	x := int(binary.BigEndian.Uint16(msg.Data[1:]))
-	y := int(binary.BigEndian.Uint16(msg.Data[3:]))
-	w := int(binary.BigEndian.Uint16(msg.Data[5:]))
-	h := int(binary.BigEndian.Uint16(msg.Data[7:]))
+	x, y := int(c.X), int(c.Y)
+	w, h := int(c.W), int(c.H)
 
-	resp := make([]byte, 8+w*h)
-	binary.BigEndian.PutUint16(resp[0:], uint16(x))
-	binary.BigEndian.PutUint16(resp[2:], uint16(y))
-	binary.BigEndian.PutUint16(resp[4:], uint16(w))
-	binary.BigEndian.PutUint16(resp[6:], uint16(h))
-
+	pixels := make([]uint8, w*h)
 	for row := range h {
 		for col := range w {
 			rx, ry := x+col, y+row
@@ -490,33 +461,31 @@ func (v *VRAMModule) handleReadRect(msg *bus.BusMessage) {
 			if rx >= 0 && rx < pg.width && ry >= 0 && ry < pg.height {
 				val = pg.index[ry*pg.width+rx]
 			}
-			resp[8+row*w+col] = val
+			pixels[row*w+col] = val
 		}
 	}
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "rect_data", Operation: bus.OpCommand, Data: resp, Source: v.Name(),
+	e := arcproto.RectData{X: c.X, Y: c.Y, W: c.W, H: c.H, Pixels: pixels}
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: e.Target(), Operation: bus.OpCommand, Data: e.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [src_page:u8][dst_page:u8][src_x:u16][src_y:u16][dst_x:u16][dst_y:u16][w:u16][h:u16]
 func (v *VRAMModule) handleCopyRect(msg *bus.BusMessage) {
-	if len(msg.Data) < 14 {
+	c, err := arcproto.DecodeCopyRect(msg.Data)
+	if err != nil {
 		return
 	}
-	srcPage := int(msg.Data[0])
-	dstPage := int(msg.Data[1])
+	srcPage := int(c.SrcPage)
+	dstPage := int(c.DstPage)
 	if !v.isValidPage(srcPage) || !v.isValidPage(dstPage) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	sp := &v.pages[srcPage]
 	dp := &v.pages[dstPage]
-	srcX := int(binary.BigEndian.Uint16(msg.Data[2:]))
-	srcY := int(binary.BigEndian.Uint16(msg.Data[4:]))
-	dstX := int(binary.BigEndian.Uint16(msg.Data[6:]))
-	dstY := int(binary.BigEndian.Uint16(msg.Data[8:]))
-	w := int(binary.BigEndian.Uint16(msg.Data[10:]))
-	h := int(binary.BigEndian.Uint16(msg.Data[12:]))
+	srcX, srcY := int(c.SrcX), int(c.SrcY)
+	dstX, dstY := int(c.DstX), int(c.DstY)
+	w, h := int(c.W), int(c.H)
 
 	csx, csy, csw, csh, _, _ := clipRect(srcX, srcY, w, h, sp.width, sp.height)
 	if csw <= 0 || csh <= 0 {
@@ -553,72 +522,63 @@ func (v *VRAMModule) handleCopyRect(msg *bus.BusMessage) {
 			}
 		}
 	})
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "rect_copied", Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventRectCopied, Operation: bus.OpCommand, Data: msg.Data, Source: v.Name(),
 	})
 }
 
-// Format: [start:u8][count:u8][R:u8][G:u8][B:u8][A:u8]...
 func (v *VRAMModule) handleSetPaletteBlock(msg *bus.BusMessage) {
-	if len(msg.Data) < 2 {
+	c, err := arcproto.DecodeSetPaletteBlock(msg.Data)
+	if err != nil {
 		return
 	}
-	start := int(msg.Data[0])
-	count := int(msg.Data[1])
-	if len(msg.Data) < 2+count*4 {
-		return
-	}
-	for i := range count {
+	start := int(c.Start)
+	for i, col := range c.Colors {
 		idx := start + i
 		if idx > 255 {
 			break
 		}
-		off := 2 + i*4
-		v.palette[idx] = [4]uint8{msg.Data[off], msg.Data[off+1], msg.Data[off+2], msg.Data[off+3]}
+		v.palette[idx] = [4]uint8{col.R, col.G, col.B, col.A}
 	}
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "palette_block_updated", Operation: bus.OpCommand, Data: msg.Data[:2], Source: v.Name(),
+	// Only the header is echoed, so subscribers learn which range changed
+	// without paying for a copy of the colour data.
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPaletteBlockUpdated, Operation: bus.OpCommand,
+		Data: msg.Data[:2], Source: v.Name(),
 	})
 }
 
-// Format: [start:u8][count:u8]
 func (v *VRAMModule) handleReadPaletteBlock(msg *bus.BusMessage) {
-	if len(msg.Data) < 2 {
+	c, err := arcproto.DecodeReadPaletteBlock(msg.Data)
+	if err != nil {
 		return
 	}
-	start := int(msg.Data[0])
-	count := int(msg.Data[1])
-	resp := make([]byte, 2+count*4)
-	resp[0] = msg.Data[0]
-	resp[1] = msg.Data[1]
-	for i := range count {
+	start := int(c.Start)
+	// Entries past index 255 are left zeroed, which is what the caller has
+	// always received for an over-long request.
+	colors := make([]arcproto.Color, int(c.Count))
+	for i := range colors {
 		idx := start + i
 		if idx > 255 {
 			break
 		}
-		off := 2 + i*4
 		pal := v.palette[idx]
-		resp[off] = pal[0]
-		resp[off+1] = pal[1]
-		resp[off+2] = pal[2]
-		resp[off+3] = pal[3]
+		colors[i] = arcproto.Color{R: pal[0], G: pal[1], B: pal[2], A: pal[3]}
 	}
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "palette_data", Operation: bus.OpCommand, Data: resp, Source: v.Name(),
+	e := arcproto.PaletteData{Start: c.Start, Colors: colors}
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: e.Target(), Operation: bus.OpCommand, Data: e.Encode(), Source: v.Name(),
 	})
 }
 
 // --- Page management commands ---
 
-// Format: [count:u8] — 0 means 256
 func (v *VRAMModule) handleSetPageCount(msg *bus.BusMessage) {
-	if len(msg.Data) < 1 {
+	c, err := arcproto.DecodeSetPageCount(msg.Data)
+	if err != nil {
 		return
 	}
-	count := int(msg.Data[0])
-	if count == 0 {
-		count = 256
-	}
+	count := c.ResolvedCount()
 	cur := len(v.pages)
 	if count > cur {
 		for range count - cur {
@@ -630,54 +590,54 @@ func (v *VRAMModule) handleSetPageCount(msg *bus.BusMessage) {
 	if v.displayPage >= count {
 		v.displayPage = 0
 	}
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "page_count_changed", Operation: bus.OpCommand,
-		Data: []byte{msg.Data[0]}, Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPageCountChanged, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [page:u8]
 func (v *VRAMModule) handleSetDisplayPage(msg *bus.BusMessage) {
-	if len(msg.Data) < 1 {
+	c, err := arcproto.DecodeSetDisplayPage(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x03)
+		v.publishPageError(arcproto.PageErrInvalidDisplay)
 		return
 	}
 	v.displayPage = page
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "display_page_changed", Operation: bus.OpCommand,
-		Data: []byte{msg.Data[0]}, Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventDisplayPageChanged, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [page1:u8][page2:u8]
 func (v *VRAMModule) handleSwapPages(msg *bus.BusMessage) {
-	if len(msg.Data) < 2 {
+	c, err := arcproto.DecodeSwapPages(msg.Data)
+	if err != nil {
 		return
 	}
-	p1, p2 := int(msg.Data[0]), int(msg.Data[1])
+	p1, p2 := int(c.Page1), int(c.Page2)
 	if !v.isValidPage(p1) || !v.isValidPage(p2) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	v.pages[p1], v.pages[p2] = v.pages[p2], v.pages[p1]
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "pages_swapped", Operation: bus.OpCommand,
-		Data: msg.Data[:2], Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPagesSwapped, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [src:u8][dst:u8]
 func (v *VRAMModule) handleCopyPage(msg *bus.BusMessage) {
-	if len(msg.Data) < 2 {
+	c, err := arcproto.DecodeCopyPage(msg.Data)
+	if err != nil {
 		return
 	}
-	src, dst := int(msg.Data[0]), int(msg.Data[1])
+	src, dst := int(c.Src), int(c.Dst)
 	if !v.isValidPage(src) || !v.isValidPage(dst) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
 	if src == dst {
@@ -691,64 +651,60 @@ func (v *VRAMModule) handleCopyPage(msg *bus.BusMessage) {
 	dp.color = make([]uint8, len(sp.color))
 	copy(dp.index, sp.index)
 	copy(dp.color, sp.color)
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "page_copied", Operation: bus.OpCommand,
-		Data: msg.Data[:2], Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPageCopied, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [page:u8][w:u16][h:u16]
 func (v *VRAMModule) handleSetPageSize(msg *bus.BusMessage) {
-	if len(msg.Data) < 5 {
+	c, err := arcproto.DecodeSetPageSize(msg.Data)
+	if err != nil {
 		return
 	}
-	page := int(msg.Data[0])
+	page := int(c.Page)
 	if !v.isValidPage(page) {
-		v.publishPageError(0x01)
+		v.publishPageError(arcproto.PageErrInvalidPage)
 		return
 	}
-	w := int(binary.BigEndian.Uint16(msg.Data[1:]))
-	h := int(binary.BigEndian.Uint16(msg.Data[3:]))
+	w, h := int(c.W), int(c.H)
 	pg := &v.pages[page]
 	pg.width = w
 	pg.height = h
 	pg.index = make([]uint8, w*h)
 	pg.color = make([]uint8, w*h*4)
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "page_size_changed", Operation: bus.OpCommand,
-		Data: msg.Data[:5], Source: v.Name(),
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventPageSizeChanged, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
-// Format: [offX:i16][offY:i16] (big-endian signed)
 func (v *VRAMModule) handleSetViewport(msg *bus.BusMessage) {
-	if len(msg.Data) < 4 {
+	c, err := arcproto.DecodeSetViewport(msg.Data)
+	if err != nil {
 		return
 	}
-	v.viewportX = int16(binary.BigEndian.Uint16(msg.Data[0:]))
-	v.viewportY = int16(binary.BigEndian.Uint16(msg.Data[2:]))
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "viewport_changed", Operation: bus.OpCommand,
-		Data: msg.Data[:4], Source: v.Name(),
+	v.viewportX = c.OffX
+	v.viewportY = c.OffY
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: arcproto.EventViewportChanged, Operation: bus.OpCommand,
+		Data: c.Encode(), Source: v.Name(),
 	})
 }
 
 // --- Helpers ---
 
 func (v *VRAMModule) publishRectEvent(x, y, w, h int) {
-	data := make([]byte, 8)
-	binary.BigEndian.PutUint16(data[0:], uint16(x))
-	binary.BigEndian.PutUint16(data[2:], uint16(y))
-	binary.BigEndian.PutUint16(data[4:], uint16(w))
-	binary.BigEndian.PutUint16(data[6:], uint16(h))
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "rect_updated", Operation: bus.OpCommand, Data: data, Source: v.Name(),
+	e := arcproto.RectUpdated{X: uint16(x), Y: uint16(y), W: uint16(w), H: uint16(h)}
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: e.Target(), Operation: bus.OpCommand, Data: e.Encode(), Source: v.Name(),
 	})
 }
 
 func (v *VRAMModule) publishPageError(code uint8) {
-	v.bus.Publish("vram_update", &bus.BusMessage{
-		Target: "page_error", Operation: bus.OpCommand, Data: []byte{code}, Source: v.Name(),
+	e := arcproto.PageError{Code: code}
+	v.bus.Publish(arcproto.TopicVRAMUpdate, &bus.BusMessage{
+		Target: e.Target(), Operation: bus.OpCommand, Data: e.Encode(), Source: v.Name(),
 	})
 }
 

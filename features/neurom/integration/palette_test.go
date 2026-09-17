@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/module"
 	"github.com/axsh/neurom/internal/modules/monitor"
@@ -32,8 +33,8 @@ func TestPaletteUpdate(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Wait for subscriptions
 
 	// 1. Send set_palette message to change Index 0x01 to Red (255, 0, 0)
-	if err := b.Publish("vram", &bus.BusMessage{
-		Target:    "set_palette",
+	if err := b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target:    arcproto.TargetSetPalette,
 		Operation: bus.OpCommand,
 		Data:      []byte{0x01, 255, 0, 0},
 	}); err != nil {
@@ -43,8 +44,8 @@ func TestPaletteUpdate(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Wait for palette propagation
 
 	// 2. Send draw_pixel at X=10, Y=10 with color index 0x01
-	if err := b.Publish("vram", &bus.BusMessage{
-		Target:    "draw_pixel",
+	if err := b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target:    arcproto.TargetDrawPixel,
 		Operation: bus.OpCommand,
 		Data:      []byte{0x00, 0x00, 10, 0x00, 10, 0x01}, // page:0, X:10, Y:10, p:1
 	}); err != nil {

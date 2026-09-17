@@ -343,7 +343,7 @@ var (
 | R6: 振る舞い不変（自動） | ゴールデンバイト列テスト PASS + 既存全テスト PASS | `scripts/process/build.sh` |
 | R6: 振る舞い不変（統合） | VRAM 系統合テスト全件 PASS | `scripts/process/integration_test.sh --specify "TestPageManagementIntegration\|TestPageDrawIsolationIntegration\|TestPaletteUpdate\|TestVRAMMonitorIntegration"` |
 | R6: 振る舞い不変（目視） | デモ 7 シーンの表示が不変 | `./bin/neurom.exe` を 21 秒以上起動し全シーンを確認 |
-| R6: 統計名の不変 | `/stats` のコマンド名が置換前と一致 | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://localhost:8080/stats` |
+| R6: 統計名の不変 | `/stats` のコマンド名が置換前と一致 | `./bin/neurom.exe --headless --stats-port 8080` + `cd features/stats && go run . --endpoint http://127.0.0.1:8080/stats` |
 | R7: 仕様書作成 | コマンド一覧が実装の switch 分岐と 1:1 対応 | `VRAM-Specification.md` と `vram.go` `handleMessage` の目視突き合わせ |
 | R8: ゴールデンバイト列 | 固定値バイト列テスト PASS | `cd features/neurom && go test -v -count=1 -run "TestGolden" ./arcproto/...` |
 | R9: ラウンドトリップ | R3 と同一 | 同上 |

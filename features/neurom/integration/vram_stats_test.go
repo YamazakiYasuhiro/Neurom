@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/module"
 	"github.com/axsh/neurom/internal/modules/vram"
@@ -18,7 +19,7 @@ func TestVRAMStatsIntegration(t *testing.T) {
 	vramMod := vram.New()
 	mgr.Register(vramMod)
 
-	updateCh, err := b.Subscribe("vram_update")
+	updateCh, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe to vram_update: %v", err)
 	}
@@ -32,8 +33,8 @@ func TestVRAMStatsIntegration(t *testing.T) {
 
 	// Send draw_pixel 20 times
 	for range 20 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target:    "draw_pixel",
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target:    arcproto.TargetDrawPixel,
 			Operation: bus.OpCommand,
 			Data:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		})
@@ -41,8 +42,8 @@ func TestVRAMStatsIntegration(t *testing.T) {
 
 	// Send set_palette 5 times
 	for range 5 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target:    "set_palette",
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target:    arcproto.TargetSetPalette,
 			Operation: bus.OpCommand,
 			Data:      []byte{0x00, 0xFF, 0x00, 0x00},
 		})
@@ -62,8 +63,8 @@ func TestVRAMStatsIntegration(t *testing.T) {
 	}
 
 	// Request stats
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target:    "get_stats",
+	_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target:    arcproto.TargetGetStats,
 		Operation: bus.OpCommand,
 	})
 
@@ -73,7 +74,7 @@ func TestVRAMStatsIntegration(t *testing.T) {
 	for {
 		select {
 		case msg := <-updateCh:
-			if msg.Target == "stats_data" {
+			if msg.Target == arcproto.EventStatsData {
 				statsMsg = msg
 			}
 		case <-deadline:

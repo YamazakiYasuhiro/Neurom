@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
 	"github.com/axsh/neurom/internal/module"
 	"github.com/axsh/neurom/internal/modules/monitor"
@@ -74,16 +75,16 @@ func TestHTTPStatsIntegration(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
 	for range 10 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target:    "draw_pixel",
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target:    arcproto.TargetDrawPixel,
 			Operation: bus.OpCommand,
 			Data:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		})
 	}
 
 	for range 5 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target:    "set_palette",
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target:    arcproto.TargetSetPalette,
 			Operation: bus.OpCommand,
 			Data:      []byte{0x00, 0xFF, 0x00, 0x00},
 		})
@@ -132,8 +133,8 @@ func TestHTTPStatsVRAMOnly(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
 	for range 3 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target:    "draw_pixel",
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target:    arcproto.TargetDrawPixel,
 			Operation: bus.OpCommand,
 			Data:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		})
@@ -187,12 +188,12 @@ func TestHTTPStatsMonitorOnly(t *testing.T) {
 func TestHTTPStats_StableEntries(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target: "draw_pixel", Operation: bus.OpCommand,
+	_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetDrawPixel, Operation: bus.OpCommand,
 		Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	})
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{0x00, 0xFF, 0x00, 0x00},
 	})
 
@@ -215,8 +216,8 @@ func TestHTTPStats_StableEntries(t *testing.T) {
 	}
 	keyCount := len(r1.VRAM.Commands)
 
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target: "draw_pixel", Operation: bus.OpCommand,
+	_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetDrawPixel, Operation: bus.OpCommand,
 		Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	})
 
@@ -241,8 +242,8 @@ func TestHTTPStats_StableEntries(t *testing.T) {
 func TestHTTPStats_SnapshotIdempotent(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
-	_ = b.Publish("vram", &bus.BusMessage{
-		Target: "draw_pixel", Operation: bus.OpCommand,
+	_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetDrawPixel, Operation: bus.OpCommand,
 		Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	})
 
@@ -290,8 +291,8 @@ func TestHTTPStats_EMAField(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
 	for range 10 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target: "clear_vram", Operation: bus.OpCommand,
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target: arcproto.TargetClearVRAM, Operation: bus.OpCommand,
 			Data: []byte{0x00, 0x00},
 		})
 	}
@@ -328,8 +329,8 @@ func TestHTTPStats_MultiWindow(t *testing.T) {
 	b, _, _, ss, _ := setupHTTPTestEnv(t)
 
 	for range 5 {
-		_ = b.Publish("vram", &bus.BusMessage{
-			Target: "draw_pixel", Operation: bus.OpCommand,
+		_ = b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+			Target: arcproto.TargetDrawPixel, Operation: bus.OpCommand,
 			Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 		})
 	}

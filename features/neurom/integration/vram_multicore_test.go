@@ -2,7 +2,7 @@ package integration
 
 import (
 	"context"
-	"encoding/binary"
+	"github.com/axsh/neurom/arcproto"
 	"testing"
 	"time"
 
@@ -37,15 +37,9 @@ func setupMultiCoreEnv(t *testing.T, workers int) (*bus.ChannelBus, *vram.VRAMMo
 }
 
 func blitMultiCore(page uint8, x, y, w, h uint16, blend vram.BlendMode, pixels []byte) *bus.BusMessage {
-	data := make([]byte, 10+len(pixels))
-	data[0] = page
-	binary.BigEndian.PutUint16(data[1:], x)
-	binary.BigEndian.PutUint16(data[3:], y)
-	binary.BigEndian.PutUint16(data[5:], w)
-	binary.BigEndian.PutUint16(data[7:], h)
-	data[9] = byte(blend)
-	copy(data[10:], pixels)
-	return &bus.BusMessage{Target: "blit_rect", Operation: bus.OpCommand, Data: data}
+	// vram.BlendMode is an alias of arcproto.BlendMode, so blend needs no conversion.
+	cmd := arcproto.BlitRect{Page: page, X: x, Y: y, W: w, H: h, Blend: blend, Pixels: pixels}
+	return &bus.BusMessage{Target: cmd.Target(), Operation: bus.OpCommand, Data: cmd.Encode()}
 }
 
 func TestMultiCoreClearAndBlit(t *testing.T) {
@@ -54,35 +48,31 @@ func TestMultiCoreClearAndBlit(t *testing.T) {
 
 	for i := range 16 {
 		palData := []byte{uint8(i), uint8(i * 16), uint8(i * 8), uint8(i * 4), 255}
-		b1.Publish("vram", &bus.BusMessage{Target: "set_palette", Operation: bus.OpCommand, Data: palData})
-		b4.Publish("vram", &bus.BusMessage{Target: "set_palette", Operation: bus.OpCommand, Data: palData})
+		b1.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetSetPalette, Operation: bus.OpCommand, Data: palData})
+		b4.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetSetPalette, Operation: bus.OpCommand, Data: palData})
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	b1.Publish("vram", &bus.BusMessage{Target: "clear_vram", Operation: bus.OpCommand, Data: []byte{0, 3}})
-	b4.Publish("vram", &bus.BusMessage{Target: "clear_vram", Operation: bus.OpCommand, Data: []byte{0, 3}})
+	b1.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetClearVRAM, Operation: bus.OpCommand, Data: arcproto.ClearVRAM{Page: 0, PaletteIdx: 3}.Encode()})
+	b4.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetClearVRAM, Operation: bus.OpCommand, Data: arcproto.ClearVRAM{Page: 0, PaletteIdx: 3}.Encode()})
 	time.Sleep(50 * time.Millisecond)
 
 	pixels := make([]byte, 32*32)
 	for i := range pixels {
 		pixels[i] = uint8(i % 16)
 	}
-	b1.Publish("vram", blitMultiCore(0, 10, 10, 32, 32, vram.BlendReplace, pixels))
-	b4.Publish("vram", blitMultiCore(0, 10, 10, 32, 32, vram.BlendReplace, pixels))
+	b1.Publish(arcproto.TopicVRAM, blitMultiCore(0, 10, 10, 32, 32, vram.BlendReplace, pixels))
+	b4.Publish(arcproto.TopicVRAM, blitMultiCore(0, 10, 10, 32, 32, vram.BlendReplace, pixels))
 	time.Sleep(100 * time.Millisecond)
 
-	ch1, _ := b1.Subscribe("vram_update")
-	ch4, _ := b4.Subscribe("vram_update")
+	ch1, _ := b1.Subscribe(arcproto.TopicVRAMUpdate)
+	ch4, _ := b4.Subscribe(arcproto.TopicVRAMUpdate)
 
-	readMsg := &bus.BusMessage{Target: "read_rect", Operation: bus.OpCommand, Data: make([]byte, 9)}
-	readMsg.Data[0] = 0
-	binary.BigEndian.PutUint16(readMsg.Data[1:], 0)
-	binary.BigEndian.PutUint16(readMsg.Data[3:], 0)
-	binary.BigEndian.PutUint16(readMsg.Data[5:], 256)
-	binary.BigEndian.PutUint16(readMsg.Data[7:], 212)
+	readCmd := arcproto.ReadRect{Page: 0, X: 0, Y: 0, W: 256, H: 212}
+	readMsg := &bus.BusMessage{Target: readCmd.Target(), Operation: bus.OpCommand, Data: readCmd.Encode()}
 
-	b1.Publish("vram", readMsg)
-	b4.Publish("vram", &bus.BusMessage{Target: "read_rect", Operation: bus.OpCommand, Data: readMsg.Data})
+	b1.Publish(arcproto.TopicVRAM, readMsg)
+	b4.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: readCmd.Target(), Operation: bus.OpCommand, Data: readMsg.Data})
 	time.Sleep(200 * time.Millisecond)
 
 	var data1, data4 []byte
@@ -90,11 +80,11 @@ func TestMultiCoreClearAndBlit(t *testing.T) {
 	for data1 == nil || data4 == nil {
 		select {
 		case msg := <-ch1:
-			if msg.Target == "rect_data" {
+			if msg.Target == arcproto.EventRectData {
 				data1 = msg.Data
 			}
 		case msg := <-ch4:
-			if msg.Target == "rect_data" {
+			if msg.Target == arcproto.EventRectData {
 				data4 = msg.Data
 			}
 		case <-timeout:
@@ -141,8 +131,8 @@ func TestMultiCoreBlendModes(t *testing.T) {
 
 			for i := range 16 {
 				palData := []byte{uint8(i), uint8(100 + i*10), uint8(50 + i*5), uint8(i * 15), 200}
-				b1.Publish("vram", &bus.BusMessage{Target: "set_palette", Operation: bus.OpCommand, Data: palData})
-				b4.Publish("vram", &bus.BusMessage{Target: "set_palette", Operation: bus.OpCommand, Data: palData})
+				b1.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetSetPalette, Operation: bus.OpCommand, Data: palData})
+				b4.Publish(arcproto.TopicVRAM, &bus.BusMessage{Target: arcproto.TargetSetPalette, Operation: bus.OpCommand, Data: palData})
 			}
 			time.Sleep(50 * time.Millisecond)
 
@@ -150,16 +140,16 @@ func TestMultiCoreBlendModes(t *testing.T) {
 			for i := range bg {
 				bg[i] = 5
 			}
-			b1.Publish("vram", blitMultiCore(0, 0, 0, 20, 20, vram.BlendReplace, bg))
-			b4.Publish("vram", blitMultiCore(0, 0, 0, 20, 20, vram.BlendReplace, bg))
+			b1.Publish(arcproto.TopicVRAM, blitMultiCore(0, 0, 0, 20, 20, vram.BlendReplace, bg))
+			b4.Publish(arcproto.TopicVRAM, blitMultiCore(0, 0, 0, 20, 20, vram.BlendReplace, bg))
 			time.Sleep(50 * time.Millisecond)
 
 			fg := make([]byte, 20*20)
 			for i := range fg {
 				fg[i] = 10
 			}
-			b1.Publish("vram", blitMultiCore(0, 0, 0, 20, 20, tc.blend, fg))
-			b4.Publish("vram", blitMultiCore(0, 0, 0, 20, 20, tc.blend, fg))
+			b1.Publish(arcproto.TopicVRAM, blitMultiCore(0, 0, 0, 20, 20, tc.blend, fg))
+			b4.Publish(arcproto.TopicVRAM, blitMultiCore(0, 0, 0, 20, 20, tc.blend, fg))
 			time.Sleep(100 * time.Millisecond)
 
 			buf1 := vram1.VRAMColorBuffer()

@@ -1,7 +1,7 @@
 package integration
 
 import (
-	"encoding/binary"
+	"github.com/axsh/neurom/arcproto"
 	"testing"
 	"time"
 
@@ -11,13 +11,13 @@ import (
 func TestPageManagementIntegration(t *testing.T) {
 	b, _, _, _ := setupEnhancementTestEnv(t)
 
-	ch, err := b.Subscribe("vram_update")
+	ch, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_count", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPageCount, Operation: bus.OpCommand,
 		Data: []byte{2}, Source: "test",
 	})
 
@@ -26,7 +26,7 @@ func TestPageManagementIntegration(t *testing.T) {
 	for {
 		select {
 		case msg := <-ch:
-			if msg.Target == "page_count_changed" {
+			if msg.Target == arcproto.EventPageCountChanged {
 				found = true
 				goto done
 			}
@@ -43,14 +43,14 @@ done:
 func TestPageDrawIsolationIntegration(t *testing.T) {
 	b, vramMod, _, _ := setupEnhancementTestEnv(t)
 
-	ch, err := b.Subscribe("vram_update")
+	ch, err := b.Subscribe(arcproto.TopicVRAMUpdate)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 
 	// Add page 1
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_count", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPageCount, Operation: bus.OpCommand,
 		Data: []byte{2}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -60,7 +60,7 @@ func TestPageDrawIsolationIntegration(t *testing.T) {
 	for i := range pixels {
 		pixels[i] = 3
 	}
-	b.Publish("vram", blitIntegration(0, 0, 0, 2, 2, 0x00, pixels))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 0, 0, 2, 2, 0x00, pixels))
 	time.Sleep(50 * time.Millisecond)
 
 	for len(ch) > 0 {
@@ -68,14 +68,10 @@ func TestPageDrawIsolationIntegration(t *testing.T) {
 	}
 
 	// Read page 0: should have pattern
-	readData := make([]byte, 9)
-	readData[0] = 0
-	binary.BigEndian.PutUint16(readData[1:], 0)
-	binary.BigEndian.PutUint16(readData[3:], 0)
-	binary.BigEndian.PutUint16(readData[5:], 2)
-	binary.BigEndian.PutUint16(readData[7:], 2)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "read_rect", Operation: bus.OpCommand, Data: readData, Source: "test",
+	readCmd := arcproto.ReadRect{Page: 0, X: 0, Y: 0, W: 2, H: 2}
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: readCmd.Target(), Operation: bus.OpCommand,
+		Data: readCmd.Encode(), Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -84,8 +80,12 @@ func TestPageDrawIsolationIntegration(t *testing.T) {
 	for !got {
 		select {
 		case msg := <-ch:
-			if msg.Target == "rect_data" {
-				for _, px := range msg.Data[8:] {
+			if msg.Target == arcproto.EventRectData {
+				e, err := arcproto.DecodeRectData(msg.Data)
+				if err != nil {
+					t.Fatalf("DecodeRectData() error = %v", err)
+				}
+				for _, px := range e.Pixels {
 					if px != 3 {
 						t.Errorf("page 0 pixel = %d, want 3", px)
 					}
@@ -98,9 +98,10 @@ func TestPageDrawIsolationIntegration(t *testing.T) {
 	}
 
 	// Read page 1: should be all zeros
-	readData[0] = 1
-	b.Publish("vram", &bus.BusMessage{
-		Target: "read_rect", Operation: bus.OpCommand, Data: readData, Source: "test",
+	readCmd.Page = 1
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: readCmd.Target(), Operation: bus.OpCommand,
+		Data: readCmd.Encode(), Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -109,8 +110,12 @@ func TestPageDrawIsolationIntegration(t *testing.T) {
 	for !got {
 		select {
 		case msg := <-ch:
-			if msg.Target == "rect_data" {
-				for _, px := range msg.Data[8:] {
+			if msg.Target == arcproto.EventRectData {
+				e, err := arcproto.DecodeRectData(msg.Data)
+				if err != nil {
+					t.Fatalf("DecodeRectData() error = %v", err)
+				}
+				for _, px := range e.Pixels {
 					if px != 0 {
 						t.Errorf("page 1 pixel = %d, want 0", px)
 					}
@@ -130,27 +135,27 @@ func TestPageDisplayIntegration(t *testing.T) {
 
 	mon.SetVRAMAccessor(vramMod)
 
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_count", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPageCount, Operation: bus.OpCommand,
 		Data: []byte{2}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
 	// Set palette
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{1, 255, 0, 0, 255}, Source: "test",
 	})
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{2, 0, 255, 0, 255}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
 	// Draw idx 1 (red) on page 0
-	b.Publish("vram", blitIntegration(0, 0, 0, 1, 1, 0x00, []byte{1}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 0, 0, 1, 1, 0x00, []byte{1}))
 	// Draw idx 2 (green) on page 1
-	b.Publish("vram", blitIntegration(1, 0, 0, 1, 1, 0x00, []byte{2}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(1, 0, 0, 1, 1, 0x00, []byte{2}))
 	time.Sleep(100 * time.Millisecond)
 
 	// Display page 0: should see red
@@ -160,8 +165,8 @@ func TestPageDisplayIntegration(t *testing.T) {
 	}
 
 	// Switch display to page 1
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_display_page", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetDisplayPage, Operation: bus.OpCommand,
 		Data: []byte{1}, Source: "test",
 	})
 	time.Sleep(100 * time.Millisecond)
@@ -176,17 +181,15 @@ func TestPageSizeIntegration(t *testing.T) {
 	b, vramMod, _, _ := setupEnhancementTestEnv(t)
 
 	// Resize page 0 to 512x512
-	data := make([]byte, 5)
-	data[0] = 0
-	binary.BigEndian.PutUint16(data[1:], 512)
-	binary.BigEndian.PutUint16(data[3:], 512)
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_page_size", Operation: bus.OpCommand, Data: data, Source: "test",
+	sizeCmd := arcproto.SetPageSize{Page: 0, W: 512, H: 512}
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: sizeCmd.Target(), Operation: bus.OpCommand,
+		Data: sizeCmd.Encode(), Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
 	// Blit at (400, 400) on the enlarged page
-	b.Publish("vram", blitIntegration(0, 400, 400, 2, 2, 0x00, []byte{5, 5, 5, 5}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 400, 400, 2, 2, 0x00, []byte{5, 5, 5, 5}))
 	time.Sleep(50 * time.Millisecond)
 
 	if vramMod.VRAMWidth() != 512 || vramMod.VRAMHeight() != 512 {
@@ -204,13 +207,13 @@ func TestVRAMAccessorMonitorIntegration(t *testing.T) {
 
 	mon.SetVRAMAccessor(vramMod)
 
-	b.Publish("vram", &bus.BusMessage{
-		Target: "set_palette", Operation: bus.OpCommand,
+	b.Publish(arcproto.TopicVRAM, &bus.BusMessage{
+		Target: arcproto.TargetSetPalette, Operation: bus.OpCommand,
 		Data: []byte{1, 255, 0, 0, 255}, Source: "test",
 	})
 	time.Sleep(50 * time.Millisecond)
 
-	b.Publish("vram", blitIntegration(0, 5, 5, 1, 1, 0x00, []byte{1}))
+	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 5, 5, 1, 1, 0x00, []byte{1}))
 	time.Sleep(100 * time.Millisecond)
 
 	r, g, bVal, a := mon.GetPixel(5, 5)
