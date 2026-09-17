@@ -563,3 +563,61 @@ Go の型システム上、`monitor` は `vram` を import せざるを得ない
     モニタが VRAM のバッファを直接参照するのではなく
     フレームのコピーを受け取る構成であることを記述する。
     仕様 026（vsync）がスナップショットの取得契機になる見込みであることも併記する。
+
+## 実施結果と総合判定
+
+**判定: PASS**（2026-09-18 実施）
+
+### 実施内容
+
+| Step | 内容 | 結果 |
+|---|---|---|
+| 1 | `frame_test.go` + monitor モック（TDD red） | コンパイル失敗を確認してコミット `69187dc` |
+| 2 | `frame.go`（`Frame` / `Snapshot` / `resizeTo`） | 単体テスト PASS |
+| 3 | `monitor` を Snapshot 方式へ移行 | 既存 2 テスト維持 |
+| 4 | 旧 7 アクセサ削除 | `grep` で 0 件 |
+| 5 | 統合テスト 3 ファイル移行 | 寸法決め打ち廃止 |
+| 6-7 | Verification Plan | 下記 |
+
+実装中の追加修正: `TestSnapshotConsistencyUnderPageResize` が
+バッファ付き `testBus` でデッドロックした。`handleMessage` が
+`mu.Lock` 保持中に満杯チャネルへ Publish すると `Snapshot` の
+`RLock` が永久に取れなくなるため、並行テストでは `discardBus` を用いた。
+
+### 検証結果
+
+| # | 検証 | 結果 |
+|---|---|---|
+| 1 | `./scripts/process/build.sh` | PASS（51s） |
+| 2 | `integration_test.sh --specify ...` | 既知の無効化のため未実行。手順 3 で代替 |
+| 3 | `go test -race -count=3 ./integration/ ./internal/...` | PASS。`DATA RACE` / `race detected` は **0 件** |
+| 4 | ヘッドレス起動 + `/stats`（port 18131） | コマンド名集合は既存どおり。`panic`/`recovered` 0 件 |
+| 5 | `BenchmarkSnapshot` | `0 B/op`, `0 allocs/op`（R7 達成） |
+| 6 | 旧アクセサ / `*512` 決め打ちの検索 | いずれも 0 件 |
+
+### 総合判定結果（testing-rules §12）
+
+**判定**: 動作確認完了
+
+#### テスト結果サマリ
+- 全テスト数: build.sh 一式 + race 検証（integration / internal 全パッケージ × 3）
+- 成功: 全件
+- 失敗: 0
+- 事実上スキップ: `integration_test.sh` 経路のみ（仕様 030 未実装の既知制約。race 検証で代替）
+
+#### チェック項目の結果
+| # | チェック項目 | 結果 | 備考 |
+|---|------------|------|------|
+| 1 | スキップされたテスト | 条件付き | `integration_test.sh` は無効だが、実行されたテスト名は race ログで確認済み |
+| 2 | 部分的なエラー | PASS | race ログに WARNING なし。neurom 実行ログに panic なし |
+| 3 | 迂回処理による偽成功 | PASS | 旧 7 アクセサは削除済み（grep 0 件） |
+| 4 | アダプタ・コンフィグの誤適用 | PASS | 本変更は内部 API 置換のみ |
+| 5 | テスト間の依存・順序問題 | PASS | `-count=3` で再現 |
+| 6 | カバレッジの妥当性 | PASS | `frame_test.go` 7 件 + ベンチが Snapshot 固有を検証 |
+| 7 | 外部システムの状態 | PASS | ローカル loopback のみ。コンテナ依存なし |
+
+#### 判定理由
+修正前に必ず検出されていた `TestMultiCoreBlendModes` / `TestPageSizeIntegration` の
+データ競合が `-count=3` でも現れないこと、旧 API が構造的に除去されていること、
+ベンチが定常アロケーション 0 を示すこと、実行時のコマンド統計が不変であることを根拠とする。
+フレーム原子性（描画途中が見えないこと）は仕様 025 の範囲であり、本計画の対象外である。

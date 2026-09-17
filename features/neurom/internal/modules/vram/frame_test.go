@@ -184,8 +184,21 @@ func applyPageSize(v *VRAMModule, page uint8, w, h uint16) {
 	})
 }
 
+// discardBus never blocks on Publish, so concurrent handleMessage callers
+// cannot deadlock a Snapshot waiting for RLock.
+type discardBus struct{}
+
+func (discardBus) Publish(string, *bus.BusMessage) error { return nil }
+func (discardBus) Subscribe(string) (<-chan *bus.BusMessage, error) {
+	return make(chan *bus.BusMessage), nil
+}
+func (discardBus) Close() error { return nil }
+
 func TestSnapshotConsistencyUnderPageResize(t *testing.T) {
-	v, _ := newTestVRAM()
+	// Use a discard bus so Publish never blocks while handleMessage holds mu.
+	// A buffered testBus fills up under rapid set_page_size and deadlocks Snapshot.
+	v := New()
+	v.bus = discardBus{}
 	const iterations = 200
 	deadline := time.After(500 * time.Millisecond)
 

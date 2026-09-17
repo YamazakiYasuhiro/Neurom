@@ -1,11 +1,12 @@
 package integration
 
 import (
-	"github.com/axsh/neurom/arcproto"
 	"testing"
 	"time"
 
+	"github.com/axsh/neurom/arcproto"
 	"github.com/axsh/neurom/internal/bus"
+	"github.com/axsh/neurom/internal/modules/vram"
 )
 
 func TestPageManagementIntegration(t *testing.T) {
@@ -192,13 +193,14 @@ func TestPageSizeIntegration(t *testing.T) {
 	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 400, 400, 2, 2, 0x00, []byte{5, 5, 5, 5}))
 	time.Sleep(50 * time.Millisecond)
 
-	if vramMod.VRAMWidth() != 512 || vramMod.VRAMHeight() != 512 {
-		t.Errorf("page 0 size = %dx%d, want 512x512", vramMod.VRAMWidth(), vramMod.VRAMHeight())
+	var f vram.Frame
+	vramMod.Snapshot(&f)
+	if f.Width != 512 || f.Height != 512 {
+		t.Errorf("page 0 size = %dx%d, want 512x512", f.Width, f.Height)
 	}
 
-	buf := vramMod.VRAMBuffer()
-	if buf[400*512+400] != 5 {
-		t.Errorf("pixel at (400,400) = %d, want 5", buf[400*512+400])
+	if got := f.Index[400*f.Width+400]; got != 5 {
+		t.Errorf("pixel at (400,400) = %d, want 5", got)
 	}
 }
 

@@ -133,18 +133,6 @@ func (v *VRAMModule) publishStats() {
 	})
 }
 
-// --- VRAMAccessor methods ---
-
-func (v *VRAMModule) VRAMBuffer() []uint8       { return v.pages[v.displayPage].index }
-func (v *VRAMModule) VRAMColorBuffer() []uint8   { return v.pages[v.displayPage].color }
-func (v *VRAMModule) VRAMWidth() int             { return v.pages[v.displayPage].width }
-func (v *VRAMModule) VRAMHeight() int            { return v.pages[v.displayPage].height }
-func (v *VRAMModule) VRAMPalette() [256][4]uint8 { return v.palette }
-func (v *VRAMModule) DisplayPage() int           { return v.displayPage }
-func (v *VRAMModule) ViewportOffset() (int16, int16) {
-	return v.viewportX, v.viewportY
-}
-
 // --- Message dispatch ---
 
 func (v *VRAMModule) handleMessage(msg *bus.BusMessage) {

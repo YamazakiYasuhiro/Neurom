@@ -172,7 +172,9 @@ func TestAlphaBlendPipeline(t *testing.T) {
 	b.Publish(arcproto.TopicVRAM, blitIntegration(0, 0, 0, 2, 2, 0x01, []byte{2, 2, 2, 2}))
 	time.Sleep(100 * time.Millisecond)
 
-	cb := vramMod.VRAMColorBuffer()
+	var f vram.Frame
+	vramMod.Snapshot(&f)
+	cb := f.Color
 	r, g, bVal := cb[0], cb[1], cb[2]
 
 	if r < 120 || r > 135 {

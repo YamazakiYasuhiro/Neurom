@@ -851,7 +851,9 @@ func TestViewportOffset(t *testing.T) {
 		Target: "set_viewport", Operation: bus.OpCommand, Data: data,
 	})
 
-	vpX, vpY := v.ViewportOffset()
+	var f Frame
+	v.Snapshot(&f)
+	vpX, vpY := f.ViewX, f.ViewY
 	if vpX != 100 || vpY != 50 {
 		t.Errorf("ViewportOffset = (%d,%d), want (100,50)", vpX, vpY)
 	}

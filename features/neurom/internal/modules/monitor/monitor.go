@@ -15,20 +15,17 @@ import (
 	"golang.org/x/mobile/gl"
 
 	"github.com/axsh/neurom/internal/bus"
+	"github.com/axsh/neurom/internal/modules/vram"
 	"github.com/axsh/neurom/internal/stats"
 )
 
 const directColorMarker = 0xFF
 
-// VRAMAccessor provides direct read access to the VRAM module's buffers.
+// VRAMAccessor hands over a consistent copy of the VRAM display state.
+// It deliberately does not expose the buffers directly: the VRAM module
+// keeps writing to them while the monitor renders.
 type VRAMAccessor interface {
-	VRAMBuffer() []uint8
-	VRAMColorBuffer() []uint8
-	VRAMWidth() int
-	VRAMHeight() int
-	VRAMPalette() [256][4]uint8
-	DisplayPage() int
-	ViewportOffset() (int16, int16)
+	Snapshot(dst *vram.Frame)
 }
 
 // MonitorStats holds the monitor performance statistics for multi-window display.
@@ -55,6 +52,7 @@ type MonitorModule struct {
 	dirty   bool
 	width   int
 	height  int
+	frame   vram.Frame // reused across refreshes; guarded by mu like rgba
 
 	appObj app.App
 	glctx  gl.Context
@@ -422,12 +420,11 @@ func (m *MonitorModule) buildFrame() {
 }
 
 func (m *MonitorModule) refreshFromVRAM() {
-	v := m.vramAccessor
-	index := v.VRAMBuffer()
-	color := v.VRAMColorBuffer()
-	pal := v.VRAMPalette()
-	vpX, vpY := v.ViewportOffset()
-	vw, vh := v.VRAMWidth(), v.VRAMHeight()
+	m.vramAccessor.Snapshot(&m.frame)
+	f := &m.frame
+	index, color, pal := f.Index, f.Color, f.Palette
+	vpX, vpY := f.ViewX, f.ViewY
+	vw, vh := f.Width, f.Height
 
 	for y := range m.height {
 		for x := range m.width {

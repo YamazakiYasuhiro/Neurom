@@ -101,8 +101,10 @@ func TestMultiCoreClearAndBlit(t *testing.T) {
 		}
 	}
 
-	buf1 := vram1.VRAMColorBuffer()
-	buf4 := vram4.VRAMColorBuffer()
+	var f1, f4 vram.Frame
+	vram1.Snapshot(&f1)
+	vram4.Snapshot(&f4)
+	buf1, buf4 := f1.Color, f4.Color
 	if len(buf1) != len(buf4) {
 		t.Fatalf("color buffer length mismatch: %d vs %d", len(buf1), len(buf4))
 	}
@@ -152,11 +154,15 @@ func TestMultiCoreBlendModes(t *testing.T) {
 			b4.Publish(arcproto.TopicVRAM, blitMultiCore(0, 0, 0, 20, 20, tc.blend, fg))
 			time.Sleep(100 * time.Millisecond)
 
-			buf1 := vram1.VRAMColorBuffer()
-			buf4 := vram4.VRAMColorBuffer()
-			for i := range buf1 {
-				if buf1[i] != buf4[i] {
-					t.Fatalf("color buffer mismatch at byte %d: %d vs %d", i, buf1[i], buf4[i])
+			var f1, f4 vram.Frame
+			vram1.Snapshot(&f1)
+			vram4.Snapshot(&f4)
+			if len(f1.Color) != len(f4.Color) {
+				t.Fatalf("color buffer length mismatch: %d vs %d", len(f1.Color), len(f4.Color))
+			}
+			for i := range f1.Color {
+				if f1.Color[i] != f4.Color[i] {
+					t.Fatalf("color buffer mismatch at byte %d: %d vs %d", i, f1.Color[i], f4.Color[i])
 				}
 			}
 		})
