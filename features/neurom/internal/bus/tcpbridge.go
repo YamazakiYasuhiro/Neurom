@@ -32,6 +32,8 @@ type TCPBridge struct {
 	testPanicOnRecv bool
 	// testAlwaysPanic makes run() panic immediately every time (for max-restart testing).
 	testAlwaysPanic bool
+	// testFailListen makes run() fail Listen every time (for restart-budget testing).
+	testFailListen bool
 }
 
 func NewTCPBridge(cfg TCPBridgeConfig) *TCPBridge {
@@ -72,10 +74,12 @@ func (tb *TCPBridge) Close() error {
 
 func (tb *TCPBridge) runWithRecovery() {
 	for {
+		panicked := false
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("[TCPBridge] recovered from panic: %v", r)
+					panicked = true
 					tb.mu.Lock()
 					tb.restarts++
 					tb.mu.Unlock()
@@ -88,12 +92,22 @@ func (tb *TCPBridge) runWithRecovery() {
 			return
 		}
 
+		// Listen/subscribe/send failures return from run() without a panic.
+		// Those used to restart forever because only panics incremented
+		// restarts. Count every unexpected exit toward MaxRestarts.
+		if !panicked {
+			tb.mu.Lock()
+			tb.restarts++
+			tb.mu.Unlock()
+		}
+
 		tb.mu.Lock()
 		restarts := tb.restarts
 		tb.mu.Unlock()
 
 		if restarts >= tb.config.MaxRestarts {
-			log.Printf("[TCPBridge] max restarts (%d) exceeded, giving up", tb.config.MaxRestarts)
+			log.Printf("[TCPBridge] giving up after %d failed attempts on %s (use --tcp-port or --no-tcp if the port is in use)",
+				restarts, tb.config.TCPEndpoint)
 			return
 		}
 
@@ -110,6 +124,10 @@ func (tb *TCPBridge) run() {
 	defer pubCancel()
 
 	pub := zmq4.NewPub(pubCtx)
+	if tb.testFailListen {
+		log.Printf("[TCPBridge] failed to listen on %s: test forced listen failure", tb.config.TCPEndpoint)
+		return
+	}
 	if err := pub.Listen(tb.config.TCPEndpoint); err != nil {
 		log.Printf("[TCPBridge] failed to listen on %s: %v", tb.config.TCPEndpoint, err)
 		return

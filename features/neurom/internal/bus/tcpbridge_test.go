@@ -98,3 +98,50 @@ func TestTCPBridge_MaxRestartsExceeded(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 }
+
+func TestTCPBridge_ListenFailureRespectsMaxRestarts(t *testing.T) {
+	b := NewChannelBus()
+	defer b.Close()
+
+	bridge := NewTCPBridge(TCPBridgeConfig{
+		Bus:         b,
+		TCPEndpoint: "tcp://127.0.0.1:15553",
+		MaxRestarts: 2,
+	})
+	bridge.testFailListen = true
+
+	start := time.Now()
+	if err := bridge.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Previously this looped forever. With the fix it must stop after MaxRestarts.
+	deadline := time.After(3 * time.Second)
+	for {
+		bridge.mu.Lock()
+		restarts := bridge.restarts
+		bridge.mu.Unlock()
+		if restarts >= 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("bridge did not stop after MaxRestarts; restarts=%d after %v", restarts, time.Since(start))
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	// Give the goroutine a moment to exit the loop after the last attempt.
+	time.Sleep(200 * time.Millisecond)
+
+	bridge.mu.Lock()
+	restarts := bridge.restarts
+	bridge.mu.Unlock()
+	if restarts != 2 {
+		t.Errorf("restarts = %d, want exactly 2 (must not keep climbing)", restarts)
+	}
+
+	if err := bridge.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
